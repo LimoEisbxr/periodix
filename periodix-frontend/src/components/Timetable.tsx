@@ -24,6 +24,22 @@ import {
 } from '../utils/timetable/layout';
 // (Mobile vertical layout removed; keeping original horizontal week view across breakpoints)
 
+// Augment global Window type for debug object (scoped here to avoid polluting other modules)
+declare global {
+    interface Window {
+        PeriodixTTDebug?: {
+            getState: () => {
+                translateX: number;
+                isAnimating: boolean;
+                isDragging: boolean;
+                lastNavigationTime: number;
+                now: number;
+            };
+            forceReset: () => string;
+        };
+    }
+}
+
 /**
  * Check if two lessons can be merged based on matching criteria
  * and break time between them (5 minutes or less)
@@ -296,6 +312,22 @@ export default function Timetable({
         }
     });
 
+    // Debug instrumentation flag (enabled if developer mode OR explicit debug query ?ttdebug=1)
+    const isDebug = (() => {
+        if (typeof window === 'undefined') return false;
+        try {
+            const q = new URLSearchParams(window.location.search);
+            return (
+                isDeveloperMode ||
+                ['1', 'true', 'yes'].includes(
+                    (q.get('ttdebug') || '').toLowerCase()
+                )
+            );
+        } catch {
+            return isDeveloperMode;
+        }
+    })();
+
     // Persist active developer mode toggle state
     useEffect(() => {
         try {
@@ -506,6 +538,8 @@ export default function Timetable({
     const [isAnimating, setIsAnimating] = useState(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const slidingTrackRef = useRef<HTMLDivElement | null>(null);
+    // Navigation lock to avoid double week jumps when diagonal / fast gestures overshoot
+    const lastNavigationTimeRef = useRef<number>(0);
 
     // Pull-to-refresh state
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -520,16 +554,102 @@ export default function Timetable({
     useEffect(() => {
         translateXRef.current = translateX;
     }, [translateX]);
+    // Refs mirroring mutable interaction state for stable single-mount handlers
+    const isAnimatingRef = useRef(isAnimating);
+    const isDraggingRef = useRef(isDragging);
+    const isRefreshingRef = useRef(isRefreshing);
+    const isCompletingRefreshRef = useRef(isCompletingRefresh);
+    const isAnimatingOutRef = useRef(isAnimatingOut);
+    const isPullingRef = useRef(isPulling);
+    const pullDistanceRef = useRef(pullDistance);
+    const axisWidthRef = useRef(axisWidth);
+    const onWeekNavigateRef = useRef(onWeekNavigate);
+    const onRefreshRef = useRef(onRefresh);
+    const isDebugRef = useRef(false);
+    isDebugRef.current = isDebug; // recompute each render
+
+    useEffect(() => {
+        isAnimatingRef.current = isAnimating;
+    }, [isAnimating]);
+    useEffect(() => {
+        isDraggingRef.current = isDragging;
+    }, [isDragging]);
+    useEffect(() => {
+        isRefreshingRef.current = isRefreshing;
+    }, [isRefreshing]);
+    useEffect(() => {
+        isCompletingRefreshRef.current = isCompletingRefresh;
+    }, [isCompletingRefresh]);
+    useEffect(() => {
+        isAnimatingOutRef.current = isAnimatingOut;
+    }, [isAnimatingOut]);
+    useEffect(() => {
+        isPullingRef.current = isPulling;
+    }, [isPulling]);
+    useEffect(() => {
+        pullDistanceRef.current = pullDistance;
+    }, [pullDistance]);
+    useEffect(() => {
+        axisWidthRef.current = axisWidth;
+    }, [axisWidth]);
+    useEffect(() => {
+        onWeekNavigateRef.current = onWeekNavigate;
+    }, [onWeekNavigate]);
+    useEffect(() => {
+        onRefreshRef.current = onRefresh;
+    }, [onRefresh]);
+
+    // Lifecycle reset: when page/tab is hidden or app backgrounded (PWA iOS), ensure we reset drag/animation state
+    useEffect(() => {
+        function resetTransientGestureState() {
+            // Only reset if we are mid drag or have a non-zero translateX without active animation
+            setIsDragging(false);
+            setTranslateX(0);
+            setIsAnimating(false);
+        }
+        const handleVisibility = () => {
+            if (document.hidden) {
+                resetTransientGestureState();
+            }
+        };
+        // iOS PWA sometimes fires pagehide instead of visibilitychange before suspension
+        window.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('pagehide', resetTransientGestureState);
+        window.addEventListener('blur', resetTransientGestureState);
+        return () => {
+            window.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('pagehide', resetTransientGestureState);
+            window.removeEventListener('blur', resetTransientGestureState);
+        };
+    }, []);
+    const [gestureAttachAttempts, setGestureAttachAttempts] = useState(0);
     useEffect(() => {
         const el = containerRef.current;
-        if (!el) return;
+        if (!el) {
+            if (gestureAttachAttempts < 8) {
+                if (isDebugRef.current)
+                    console.debug('[TT] gesture attach retry', {
+                        attempt: gestureAttachAttempts,
+                    });
+                requestAnimationFrame(() =>
+                    setGestureAttachAttempts((a) => a + 1)
+                );
+            } else if (isDebugRef.current) {
+                console.debug(
+                    '[TT] gesture attach giving up (container still null)'
+                );
+            }
+            return;
+        }
+        if (isDebugRef.current)
+            console.debug('[TT] gesture handlers attach', {
+                attempt: gestureAttachAttempts,
+            });
 
         // Capture the ref at the beginning of the effect
         const currentAnimationRef = animationRef.current;
 
         let skipSwipe = false;
-        let wheelDeltaX = 0;
-        let wheelDeltaY = 0;
         // (removed legacy wheelTimeout; using wheelChainTimer approach now)
         // Trackpad gesture management state
         // We treat a sequence of wheel events with short gaps as one "wheel gesture chain".
@@ -550,12 +670,22 @@ export default function Timetable({
         const handleTouchStart = (e: TouchEvent) => {
             if (
                 e.touches.length !== 1 ||
-                isAnimating ||
-                isRefreshing ||
-                isCompletingRefresh ||
-                isAnimatingOut
-            )
+                isAnimatingRef.current ||
+                isRefreshingRef.current ||
+                isCompletingRefreshRef.current ||
+                isAnimatingOutRef.current
+            ) {
+                if (isDebugRef.current) {
+                    console.debug('[TT] touchstart gated', {
+                        touches: e.touches.length,
+                        animating: isAnimatingRef.current,
+                        refreshing: isRefreshingRef.current,
+                        completing: isCompletingRefreshRef.current,
+                        animOut: isAnimatingOutRef.current,
+                    });
+                }
                 return;
+            }
             const target = e.target as HTMLElement | null;
             // Ignore swipe if user starts on an interactive control
             if (
@@ -569,6 +699,7 @@ export default function Timetable({
 
             skipSwipe = false;
             setIsDragging(true);
+            isDraggingRef.current = true;
             touchStartX.current = e.touches[0].clientX;
             touchStartY.current = e.touches[0].clientY;
             touchStartTime.current = Date.now();
@@ -577,11 +708,12 @@ export default function Timetable({
         const handleTouchMove = (e: TouchEvent) => {
             if (
                 skipSwipe ||
-                !isDragging ||
+                !isDraggingRef.current ||
                 touchStartX.current == null ||
                 touchStartY.current == null
-            )
+            ) {
                 return;
+            }
 
             const currentX = e.touches[0].clientX;
             const currentY = e.touches[0].clientY;
@@ -593,10 +725,13 @@ export default function Timetable({
             const isDownwardSwipe =
                 dy > 0 && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 20;
 
-            if (isAtTop && isDownwardSwipe && onRefresh) {
+            if (isAtTop && isDownwardSwipe && onRefreshRef.current) {
                 // This is a pull-to-refresh gesture
                 e.preventDefault();
-                setIsPulling(true);
+                if (!isPullingRef.current) {
+                    setIsPulling(true);
+                    isPullingRef.current = true;
+                }
 
                 // Calculate pull distance with resistance
                 let distance = dy;
@@ -605,9 +740,12 @@ export default function Timetable({
                     distance = refreshThreshold + (dy - refreshThreshold) * 0.3;
                 }
 
-                setPullDistance(
-                    Math.max(0, Math.min(distance, refreshThreshold * 1.5))
+                const clamped = Math.max(
+                    0,
+                    Math.min(distance, refreshThreshold * 1.5)
                 );
+                setPullDistance(clamped);
+                pullDistanceRef.current = clamped;
                 return;
             }
 
@@ -615,16 +753,22 @@ export default function Timetable({
             if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 20) {
                 skipSwipe = true;
                 setIsDragging(false);
+                isDraggingRef.current = false;
                 setTranslateX(0);
+                translateXRef.current = 0;
                 setIsPulling(false);
+                isPullingRef.current = false;
                 setPullDistance(0);
+                pullDistanceRef.current = 0;
                 return;
             }
 
             // Reset pull-to-refresh state if it was a horizontal gesture
-            if (isPulling) {
+            if (isPullingRef.current) {
                 setIsPulling(false);
+                isPullingRef.current = false;
                 setPullDistance(0);
+                pullDistanceRef.current = 0;
             }
             // Prevent default only for horizontal swipes to avoid conflicts with scrolling
             if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
@@ -646,8 +790,31 @@ export default function Timetable({
             direction: 'prev' | 'next',
             userVelocityPxPerSec?: number
         ) => {
-            if (isAnimating) return;
+            if (isAnimatingRef.current) {
+                // Ignore new navigation until current finishes; snap back for safety
+                setTranslateX(0);
+                setIsDragging(false);
+                if (isDebugRef.current) {
+                    console.debug(
+                        '[TT] performNavigation blocked: already animating',
+                        {
+                            direction,
+                            translateX: translateXRef.current,
+                        }
+                    );
+                }
+                return;
+            }
+            // Do NOT update lastNavigationTimeRef yet; we move it to end so user can chain swipes fluidly.
             setIsAnimating(true);
+            isAnimatingRef.current = true;
+            if (isDebugRef.current) {
+                console.debug('[TT] performNavigation start', {
+                    direction,
+                    userVelocityPxPerSec,
+                    translateXStart: translateXRef.current,
+                });
+            }
 
             // Cancel any in‑flight animation
             if (animationRef.current) {
@@ -721,13 +888,33 @@ export default function Timetable({
                 } else {
                     // Finalize at exact target to avoid sub‑pixel remainder
                     setTranslateX(targetX);
+                    if (isDebugRef.current) {
+                        console.debug('[TT] animation reached target', {
+                            direction,
+                            targetX,
+                        });
+                    }
                     // Immediately swap week (without visible jump) by resetting translateX after data update
                     // Use rAF so layout with final frame paints first
                     requestAnimationFrame(() => {
-                        onWeekNavigate?.(direction);
-                        // Reset without animation: just place new current week centered
+                        onWeekNavigateRef.current?.(direction);
+                        // Snap to center for new current week
                         setTranslateX(0);
                         setIsAnimating(false);
+                        isAnimatingRef.current = false;
+                        setIsDragging(false);
+                        isDraggingRef.current = false;
+                        flingVelocityRef.current = 0;
+                        lastNavigationTimeRef.current = Date.now();
+                        // Reset wheel chain state cleanly
+                        resetWheelChain();
+                        if (isDebugRef.current) {
+                            console.debug('[TT] navigation complete', {
+                                direction,
+                                lastNavigationTime:
+                                    lastNavigationTimeRef.current,
+                            });
+                        }
                     });
                 }
             };
@@ -745,7 +932,7 @@ export default function Timetable({
             }
 
             if (
-                !isDragging ||
+                !isDraggingRef.current ||
                 touchStartX.current == null ||
                 touchStartY.current == null ||
                 touchStartTime.current == null
@@ -761,33 +948,48 @@ export default function Timetable({
             const currentY = e.changedTouches[0].clientY;
 
             setIsDragging(false);
+            isDraggingRef.current = false;
 
             // Handle pull-to-refresh
-            if (isPulling && onRefresh && pullDistance >= refreshThreshold) {
+            if (
+                isPullingRef.current &&
+                onRefreshRef.current &&
+                pullDistanceRef.current >= refreshThreshold
+            ) {
                 setIsRefreshing(true);
+                isRefreshingRef.current = true;
                 setIsPulling(false);
+                isPullingRef.current = false;
                 setPullDistance(0);
+                pullDistanceRef.current = 0;
 
-                onRefresh()
+                onRefreshRef
+                    .current?.()
                     .then(() => {
                         // Start completion phase with loading circle
                         setIsRefreshing(false);
+                        isRefreshingRef.current = false;
                         setIsCompletingRefresh(true);
+                        isCompletingRefreshRef.current = true;
 
                         // Show completion loading for 1 second, then animate out
                         setTimeout(() => {
                             setIsCompletingRefresh(false);
+                            isCompletingRefreshRef.current = false;
                             setIsAnimatingOut(true);
+                            isAnimatingOutRef.current = true;
 
                             // Complete the animation after flying out
                             setTimeout(() => {
                                 setIsAnimatingOut(false);
+                                isAnimatingOutRef.current = false;
                             }, 500); // Animation duration
                         }, 1000); // 1 second loading circle
                     })
                     .catch((error) => {
                         console.error('Refresh failed:', error);
                         setIsRefreshing(false);
+                        isRefreshingRef.current = false;
                     });
 
                 touchStartX.current = null;
@@ -797,9 +999,11 @@ export default function Timetable({
             }
 
             // Reset pull-to-refresh state if threshold not reached
-            if (isPulling) {
+            if (isPullingRef.current) {
                 setIsPulling(false);
+                isPullingRef.current = false;
                 setPullDistance(0);
+                pullDistanceRef.current = 0;
             }
 
             // Use improved navigation detection
@@ -827,9 +1031,18 @@ export default function Timetable({
                     if (dtTotal > 0) velocity = Math.abs(dxTotal / dtTotal); // px/s
                 }
                 performNavigation(navigation.direction, velocity);
+                if (isDebugRef.current) {
+                    console.debug('[TT] touch navigation trigger', {
+                        direction: navigation.direction,
+                        velocity,
+                    });
+                }
             } else {
                 // Snap back to current position
                 setTranslateX(0);
+                if (isDebugRef.current) {
+                    console.debug('[TT] touch gesture cancelled / snap back');
+                }
             }
 
             touchStartX.current = null;
@@ -837,30 +1050,34 @@ export default function Timetable({
             touchStartTime.current = null;
         };
 
-        const handleWheel = (e: WheelEvent) => {
-            if (isAnimating) return;
-
-            const nowTs = Date.now();
-            if (nowTs - lastWheelNavTime < WHEEL_COOLDOWN_MS) {
-                return; // Global cooldown
+        const recentWheelEvents: { dx: number; dy: number; t: number }[] = [];
+        const resetWheelChain = () => {
+            wheelChainActive = false;
+            hasNavigatedThisWheelChain = false;
+            recentWheelEvents.length = 0;
+            if (wheelChainTimer) {
+                clearTimeout(wheelChainTimer);
+                wheelChainTimer = null;
             }
+        };
+        const WHEEL_SAMPLE_WINDOW_MS = 140; // window of recent events to classify intent
+        const handleWheel = (e: WheelEvent) => {
+            if (isAnimatingRef.current) return;
+            const nowTs = Date.now();
+            if (nowTs - lastWheelNavTime < WHEEL_COOLDOWN_MS) return;
 
             const target = e.target as HTMLElement | null;
-            // Ignore wheel if user is over an interactive control
             if (
                 target &&
                 (target.closest(INTERACTIVE_SELECTOR) ||
                     target.tagName === 'INPUT')
-            ) {
+            )
                 return;
-            }
-            // Establish / extend current wheel gesture chain
+
+            // Start / extend chain
             if (!wheelChainActive) {
                 wheelChainActive = true;
                 hasNavigatedThisWheelChain = false;
-                wheelDeltaX = 0;
-                wheelDeltaY = 0;
-                // Capture vertical scroll context for this chain
                 wheelInitialScrollTop = el.scrollTop;
                 wheelInitialMaxScrollTop = el.scrollHeight - el.clientHeight;
             }
@@ -868,93 +1085,143 @@ export default function Timetable({
             wheelChainTimer = window.setTimeout(() => {
                 wheelChainActive = false;
                 hasNavigatedThisWheelChain = false;
-                wheelDeltaX = 0;
-                wheelDeltaY = 0;
+                recentWheelEvents.length = 0;
             }, WHEEL_CHAIN_INACTIVITY_MS);
 
-            // Accumulate deltas
-            wheelDeltaX += e.deltaX;
-            wheelDeltaY += e.deltaY;
+            // Record event
+            recentWheelEvents.push({ dx: e.deltaX, dy: e.deltaY, t: nowTs });
+            // Drop old samples
+            while (
+                recentWheelEvents.length &&
+                nowTs - recentWheelEvents[0].t > WHEEL_SAMPLE_WINDOW_MS
+            ) {
+                recentWheelEvents.shift();
+            }
+            if (hasNavigatedThisWheelChain) {
+                if (isDebugRef.current)
+                    console.debug(
+                        '[TT] wheel ignored: already navigated this chain'
+                    );
+                return;
+            }
 
-            // If we've already navigated in this chain, ignore (allow vertical scroll)
-            if (hasNavigatedThisWheelChain) return;
+            const sumX = recentWheelEvents.reduce((a, v) => a + v.dx, 0);
+            const sumY = recentWheelEvents.reduce((a, v) => a + v.dy, 0);
+            const absX = Math.abs(sumX);
+            const absY = Math.abs(sumY);
 
-            // Stronger horizontal intent requirements:
-            //  - horizontal magnitude threshold
-            //  - horizontal dominates vertical by ratio
-            //  - vertical noise under a soft cap
-            const ABS_X = Math.abs(wheelDeltaX);
-            const ABS_Y = Math.abs(wheelDeltaY);
-            // Dynamic thresholds: require stronger horizontal intent if vertical motion is high
-            const BASE_HORIZONTAL_THRESHOLD = 130;
-            const EXTRA_THRESHOLD = Math.min(120, Math.max(0, ABS_Y - 40));
-            const HORIZONTAL_THRESHOLD =
-                BASE_HORIZONTAL_THRESHOLD + EXTRA_THRESHOLD; // climbs as vertical increases
-            const RATIO_REQUIREMENT = 2.0; // slightly stricter than before
-            const MAX_VERTICAL_ABS = 90; // hard cap; beyond this treat gesture as vertical/diagonal
-
-            // Detect if user is pushing against vertical edges (bounce/overscroll at top or bottom)
+            // Edge bounce suppression
             const atTopStart = wheelInitialScrollTop <= 2;
             const atBottomStart =
                 wheelInitialScrollTop >= wheelInitialMaxScrollTop - 2;
             const verticalEdgePush =
-                (atTopStart && wheelDeltaY < -28) ||
-                (atBottomStart && wheelDeltaY > 28);
+                (atTopStart && sumY < -25) || (atBottomStart && sumY > 25);
+            if (verticalEdgePush && absY > 22) {
+                if (isDebugRef.current)
+                    console.debug('[TT] wheel ignored: vertical edge bounce');
+                return;
+            }
 
-            // If a vertical edge push is happening with notable vertical movement, suppress navigation.
-            if (verticalEdgePush && ABS_Y > 24) return;
+            // Threshold logic tuned for short rolling window
+            const HORIZONTAL_MIN = 95; // smaller because we only look at recent window
+            const RATIO_REQ = 1.7;
+            if (absY > 80) {
+                if (isDebugRef.current)
+                    console.debug('[TT] wheel ignored: too vertical', {
+                        absX,
+                        absY,
+                    });
+                return;
+            }
+            if (absX < HORIZONTAL_MIN || absX <= absY * RATIO_REQ) {
+                if (isDebugRef.current)
+                    console.debug(
+                        '[TT] wheel ignored: insufficient horizontal intent',
+                        { absX, absY }
+                    );
+                return;
+            }
 
-            // Also suppress if overall vertical magnitude large relative to horizontal spread or exceeds max
-            if (ABS_Y > MAX_VERTICAL_ABS) return;
-
-            const looksHorizontal =
-                ABS_X >= HORIZONTAL_THRESHOLD &&
-                ABS_X > ABS_Y * RATIO_REQUIREMENT &&
-                ABS_Y <= 60; // soft vertical noise cap for valid horizontal gesture
-
-            if (!looksHorizontal) return; // Keep collecting / allow normal vertical scroll
-
-            // Prevent native horizontal scroll once we decide it's a navigation gesture
             e.preventDefault();
-
-            // Decide direction & navigate
-            const direction = wheelDeltaX > 0 ? 'next' : 'prev';
+            const direction = sumX > 0 ? 'next' : 'prev';
             hasNavigatedThisWheelChain = true;
-            lastWheelNavTime = nowTs; // start cooldown clock immediately
-
-            const gestureSpeed = Math.min(
-                4800,
-                Math.max(1400, Math.abs(wheelDeltaX) * 10)
-            );
+            lastWheelNavTime = nowTs;
+            const gestureSpeed = Math.min(4200, Math.max(1200, absX * 14));
             performNavigation(direction, gestureSpeed);
-            // Don't reset deltas until chain end; further wheel events during chain are ignored
+            if (isDebugRef.current) {
+                console.debug('[TT] wheel navigation trigger', {
+                    direction,
+                    absX,
+                    absY,
+                    gestureSpeed,
+                    samples: recentWheelEvents.length,
+                });
+            }
         };
 
         el.addEventListener('touchstart', handleTouchStart, { passive: true });
         el.addEventListener('touchmove', handleTouchMove, { passive: false });
         el.addEventListener('touchend', handleTouchEnd, { passive: true });
+        // touchcancel fires on iOS (esp. PWA) when system interrupts (notification, gesture) mid drag
+        const handleTouchCancel = () => {
+            setIsDragging(false);
+            setTranslateX(0);
+        };
+        el.addEventListener('touchcancel', handleTouchCancel, {
+            passive: true,
+        });
         el.addEventListener('wheel', handleWheel, { passive: false });
 
         return () => {
             el.removeEventListener('touchstart', handleTouchStart);
             el.removeEventListener('touchmove', handleTouchMove);
             el.removeEventListener('touchend', handleTouchEnd);
+            el.removeEventListener('touchcancel', handleTouchCancel);
             el.removeEventListener('wheel', handleWheel);
             // Use the captured ref value for cleanup
             if (currentAnimationRef) cancelAnimationFrame(currentAnimationRef);
+            if (isDebugRef.current) {
+                console.debug('[TT] gesture effect cleanup');
+            }
         };
-    }, [
-        onWeekNavigate,
-        isDragging,
-        isAnimating,
-        axisWidth,
-        isPulling,
-        isRefreshing,
-        isCompletingRefresh,
-        isAnimatingOut,
-        onRefresh,
-        pullDistance,
-    ]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gestureAttachAttempts]);
+
+    // // Watchdog for stuck animation or leftover translation (every 1s)
+    // useEffect(() => {
+    //     const interval = setInterval(() => {
+    //         if (!isAnimatingRef.current && Math.abs(translateXRef.current) > 2) {
+    //             setTranslateX(0);
+    //             if (isDebugRef.current) console.debug('[TT] watchdog: corrected non-zero translateX while not animating');
+    //         }
+    //     }, 1000);
+    //     return () => clearInterval(interval);
+    // }, []);
+
+    // Expose minimal debug snapshot API on window for deeper inspection when user reports being stuck
+    useEffect(() => {
+        if (!isDebug || typeof window === 'undefined') return;
+        window.PeriodixTTDebug = {
+            getState: () => ({
+                translateX,
+                isAnimating,
+                isDragging,
+                lastNavigationTime: lastNavigationTimeRef.current,
+                now: Date.now(),
+            }),
+            forceReset: () => {
+                setTranslateX(0);
+                setIsAnimating(false);
+                setIsDragging(false);
+                return 'reset-done';
+            },
+        };
+        return () => {
+            if (window.PeriodixTTDebug) {
+                delete window.PeriodixTTDebug;
+            }
+        };
+    }, [isDebug, translateX, isAnimating, isDragging]);
 
     // Track current time and compute line position
     const [now, setNow] = useState<Date>(() => new Date());
@@ -1328,7 +1595,9 @@ export default function Timetable({
                                 {showNowLine && (
                                     <div
                                         aria-hidden
-                                        className="pointer-events-none absolute -translate-y-1/2 z-40"
+                                        // Elevated z-index so the time bubble (especially on Mondays near the left time axis) is not obscured.
+                                        // Was z-40; increased to z-50 to sit above the vertical time axis / gutter.
+                                        className="pointer-events-none absolute -translate-y-1/2 z-50"
                                         style={{
                                             top: nowY,
                                             left: '0.25rem',

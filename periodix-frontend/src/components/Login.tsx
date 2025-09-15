@@ -19,7 +19,10 @@ export default function Login({
         string | undefined
     >(undefined);
 
+    const modalOpen = showRequestAccessModal || showPendingAccessModal;
+
     async function submit() {
+        if (modalOpen) return; // Block submissions while a modal is open
         setLoading(true);
         setError(null);
         try {
@@ -150,12 +153,34 @@ export default function Login({
                                 </p>
                             </div>
                         </div>
-                        <div className="space-y-4">
+                        <form
+                            className="space-y-4"
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                if (!loading && !modalOpen) void submit();
+                            }}
+                            // Some older Android WebView / PWA contexts occasionally miss Enter submit.
+                            onKeyDown={(e) => {
+                                if (
+                                    e.key === 'Enter' &&
+                                    (e.metaKey || e.ctrlKey)
+                                ) {
+                                    // Allow Cmd/Ctrl+Enter as explicit submit too.
+                                    (
+                                        e.currentTarget as HTMLFormElement
+                                    ).requestSubmit();
+                                }
+                            }}
+                        >
                             <div>
-                                <label className="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-2">
+                                <label
+                                    htmlFor="login-username"
+                                    className="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-2"
+                                >
                                     Username
                                 </label>
                                 <input
+                                    id="login-username"
                                     className="input bg-slate-800/70 border-slate-700 focus:ring-sky-500/60 focus:border-sky-500 placeholder:text-slate-500"
                                     placeholder="your username"
                                     value={username}
@@ -163,13 +188,35 @@ export default function Login({
                                         setUsername(e.target.value)
                                     }
                                     autoComplete="username"
+                                    required
+                                    onKeyDown={(e) => {
+                                        if (modalOpen && e.key === 'Enter') {
+                                            e.preventDefault();
+                                            return;
+                                        }
+                                        if (e.key === 'Enter') {
+                                            // If password empty, move focus to password instead of submitting prematurely.
+                                            if (!password) {
+                                                e.preventDefault();
+                                                const pw =
+                                                    document.getElementById(
+                                                        'login-password'
+                                                    );
+                                                pw?.focus();
+                                            }
+                                        }
+                                    }}
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-2">
+                                <label
+                                    htmlFor="login-password"
+                                    className="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-2"
+                                >
                                     Password
                                 </label>
                                 <input
+                                    id="login-password"
                                     className="input bg-slate-800/70 border-slate-700 focus:ring-sky-500/60 focus:border-sky-500 placeholder:text-slate-500"
                                     type="password"
                                     placeholder="your password"
@@ -178,10 +225,26 @@ export default function Login({
                                         setPassword(e.target.value)
                                     }
                                     autoComplete="current-password"
+                                    required
+                                    onKeyDown={(e) => {
+                                        if (modalOpen && e.key === 'Enter') {
+                                            e.preventDefault();
+                                            return;
+                                        }
+                                        if (e.key === 'Enter') {
+                                            // Let the form submit normally
+                                            // but ensure we don't double-trigger via button onClick
+                                            // (button is type=submit so it's fine)
+                                        }
+                                    }}
                                 />
                             </div>
                             {error && (
-                                <div className="rounded-xl border border-red-500/40 bg-red-500/10 backdrop-blur-sm p-3 text-sm text-red-300 shadow-inner">
+                                <div
+                                    role="alert"
+                                    aria-live="assertive"
+                                    className="rounded-xl border border-red-500/40 bg-red-500/10 backdrop-blur-sm p-3 text-sm text-red-300 shadow-inner"
+                                >
                                     <div className="flex items-start gap-2">
                                         <svg
                                             className="h-4 w-4 flex-shrink-0 mt-0.5 text-red-400"
@@ -204,16 +267,16 @@ export default function Login({
                             )}
                             <div className="pt-2">
                                 <button
-                                    disabled={loading}
+                                    type="submit"
+                                    disabled={loading || modalOpen}
                                     className="relative w-full rounded-xl bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500 p-[2px] shadow-lg shadow-sky-900/30 focus:outline-none focus:ring-2 focus:ring-sky-400/50 disabled:opacity-50 disabled:cursor-not-allowed group"
-                                    onClick={() => submit()}
                                 >
                                     <span className="block w-full rounded-[10px] bg-slate-950 px-5 py-3 text-sm font-semibold tracking-wide text-slate-100 group-hover:bg-slate-900 transition-colors">
                                         {loading ? 'Signing in...' : 'Sign in'}
                                     </span>
                                 </button>
                             </div>
-                        </div>
+                        </form>
                         {/* <div className="mt-8 text-[10px] text-center text-slate-500 tracking-wider uppercase">
                             Secure Untis credential verification • v1
                         </div> */}

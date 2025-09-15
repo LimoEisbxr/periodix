@@ -691,16 +691,20 @@ export class NotificationService {
                 const toMinutes = (hhmm: number) =>
                     Math.floor(hhmm / 100) * 60 + (hhmm % 100);
 
+                const globalUpcomingEnabled =
+                    user.notificationSettings.upcomingLessonsEnabled === true;
+
                 for (const lesson of lessons) {
                     if (!lesson?.startTime) continue;
-                    if (lesson.date !== todayYmd) continue;
+                    // lesson.date can arrive as string or number; normalize
+                    if (Number(lesson.date) !== todayYmd) continue;
                     if (lesson.code === 'cancelled') continue; // don't remind cancelled
 
                     const startMin = toMinutes(lesson.startTime);
                     const diff = startMin - nowMinutes; // whole minutes until start
-                    // Allow a tolerance window (4-5 minutes before) to avoid missing due to interval drift.
-                    // The loop runs every ~60s but can drift; requiring exactly 5 could miss if we run late.
-                    if (diff <= 5 && diff >= 4) {
+                    // Allow a tolerance window (3-5 minutes before) to avoid missing due to interval drift.
+                    // If we run slightly early/late we still capture the reminder once.
+                    if (diff <= 5 && diff >= 3) {
                         // Check if a notification already exists for this upcoming lesson (dedupeKey logic mirrors creation below)
                         const dedupeKeyPreview = [
                             'upcoming',
@@ -731,7 +735,8 @@ export class NotificationService {
                         const anyDeviceEnabled = Object.values(
                             devicePrefs
                         ).some((p: any) => p?.upcomingLessonsEnabled);
-                        if (!anyDeviceEnabled) continue;
+                        if (!anyDeviceEnabled && !globalUpcomingEnabled)
+                            continue;
                         // Build shortform info: subject, time, room, teacher
                         const subject = lesson.su?.[0]?.name || 'Lesson';
                         const hh = String(
@@ -816,9 +821,14 @@ export class NotificationService {
     // Fast path: check upcoming lessons for all users with setting enabled
     private async checkUpcomingLessons(): Promise<void> {
         try {
+            // Previously this queried only users with pushNotificationsEnabled=true.
+            // That prevented creation of upcoming notifications for users who had
+            // enabled the feature (globally or per-device) but had not yet enabled
+            // push (or whose push subscription failed). We now fetch ALL users that
+            // have notification settings and perform precise filtering in-process.
             const users = await (prisma as any).user.findMany({
                 where: {
-                    notificationSettings: { pushNotificationsEnabled: true },
+                    notificationSettings: { isNot: null },
                 },
                 include: {
                     notificationSettings: true,
@@ -839,8 +849,12 @@ export class NotificationService {
                     const anyDeviceEnabled = Object.values(devicePrefs).some(
                         (p: any) => p?.upcomingLessonsEnabled === true
                     );
-                    if (!anyDeviceEnabled) {
-                        continue; // skip user entirely to avoid needless Untis fetches
+                    const globalUpcomingEnabled =
+                        user.notificationSettings?.upcomingLessonsEnabled ===
+                        true;
+                    // If neither global nor any per-device flag is enabled, skip.
+                    if (!anyDeviceEnabled && !globalUpcomingEnabled) {
+                        continue; // skip user to avoid unnecessary work
                     }
 
                     let latest = user.timetables?.[0];
@@ -870,6 +884,22 @@ export class NotificationService {
                                 hasToday = lessons.some(
                                     (l: any) => Number(l?.date) === todayYmd
                                 );
+                                // IMPORTANT: Mutate the in-memory user object so that
+                                // downstream checkUserTimetableChanges() sees the fresh
+                                // payload. Previously we refreshed "lessons" locally but
+                                // passed the original user whose timetables[0] still
+                                // referenced the stale payload – causing upcoming reminders
+                                // to be skipped entirely until the slower full refresh ran.
+                                user.timetables = [
+                                    {
+                                        ...(latest || {
+                                            id: 'temp',
+                                            createdAt: new Date(),
+                                        }),
+                                        payload: lessons,
+                                    },
+                                ];
+                                latest = user.timetables[0];
                             }
                         } catch (refreshErr) {
                             console.warn(
