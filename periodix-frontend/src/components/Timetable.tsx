@@ -15,6 +15,7 @@ import {
     untisToMinutes,
 } from '../utils/dates';
 import { setLessonColor } from '../api';
+import { isMobileViewport } from '../utils/responsive';
 import LessonModal from './LessonModal';
 import TimeAxis from './TimeAxis';
 import DayColumn from './DayColumn';
@@ -481,7 +482,8 @@ export default function Timetable({
         function computeScale() {
             const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
             const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
-            const isMobile = vw < 640;
+            // Raised mobile threshold from 640px to 768px (see utils/responsive.ts)
+            const isMobile = isMobileViewport(vw);
             // Target vertical pixels for timetable (excludes header) – dynamic for better fill
             // Mobile: keep more compact (1.0–1.15 px/min) to avoid excessive scrolling
             if (isMobile) {

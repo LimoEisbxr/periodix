@@ -1,5 +1,5 @@
 import type { FC, ReactElement } from 'react';
-import { useState, useLayoutEffect } from 'react';
+import { useState, useLayoutEffect, useRef, useEffect } from 'react';
 import FitText from './FitText';
 import EllipsisIcon from './EllipsisIcon';
 import type { Lesson, LessonColors } from '../types';
@@ -7,6 +7,7 @@ import { fmtHM, untisToMinutes } from '../utils/dates';
 import { clamp } from '../utils/dates';
 import { generateGradient, getDefaultGradient } from '../utils/colors';
 import { extractSubjectType } from '../utils/subjectUtils';
+import { MOBILE_MEDIA_QUERY } from '../utils/responsive';
 import { hasLessonChanges, getRoomDisplayText } from '../utils/lessonChanges';
 
 export type Block = {
@@ -52,12 +53,12 @@ const DayColumn: FC<DayColumnProps> = ({
     hideHeader = false,
     mobileTinyLessonThresholdPx = 56,
 }) => {
-    // Detect mobile (tailwind sm breakpoint <640px). Responsive hook to decide hiding side-by-side overlaps.
+    // Detect mobile (<768px now; previously <640px). Responsive hook to decide hiding side-by-side overlaps.
     // Detect mobile synchronously on first render to avoid a second-pass layout jump
     const [isMobile, setIsMobile] = useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
         try {
-            return window.matchMedia('(max-width: 639px)').matches;
+            return window.matchMedia(MOBILE_MEDIA_QUERY).matches;
         } catch {
             return false;
         }
@@ -67,7 +68,7 @@ const DayColumn: FC<DayColumnProps> = ({
         if (typeof window === 'undefined') return;
         let mq: MediaQueryList | null = null;
         try {
-            mq = window.matchMedia('(max-width: 639px)');
+            mq = window.matchMedia(MOBILE_MEDIA_QUERY);
         } catch {
             return;
         }
@@ -845,7 +846,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                 })()}
                                             </div>
                                         ) : (
-                                            // Normal layout: subject, time, teacher in separate rows
+                                            // Normal layout: subject, teacher, time (time moved below teacher per request)
                                             <>
                                                 <div
                                                     className={`font-semibold leading-tight text-[13px] ${
@@ -856,40 +857,6 @@ const DayColumn: FC<DayColumnProps> = ({
                                                 >
                                                     {displaySubject}
                                                 </div>
-                                                {/* Timeframe:
-                                                    - For normal lessons: shown (when canShowTimeFrame true)
-                                                    - Previously hidden for cancelled / irregular lessons.
-                                                    - Request: show it again for merged cancelled / irregular lessons.
-                                                      If cancelled, it should be crossed out; irregular stays normal.
-                                                */}
-                                                {canShowTimeFrame &&
-                                                    // normal lesson
-                                                    (!(
-                                                        cancelled || irregular
-                                                    ) ||
-                                                        // merged cancelled / irregular lesson
-                                                        ((cancelled ||
-                                                            irregular) &&
-                                                            isMerged)) && (
-                                                        <div
-                                                            className={`opacity-90 sm:mt-0 leading-tight text-[12px] ${
-                                                                cancelled &&
-                                                                isMerged
-                                                                    ? 'lesson-cancelled-time'
-                                                                    : ''
-                                                            }`}
-                                                        >
-                                                            <span className="whitespace-nowrap">
-                                                                {fmtHM(
-                                                                    b.startMin
-                                                                )}
-                                                                –
-                                                                {fmtHM(
-                                                                    b.endMin
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                    )}
                                                 {(() => {
                                                     if (
                                                         !l.te ||
@@ -921,6 +888,25 @@ const DayColumn: FC<DayColumnProps> = ({
                                                         </div>
                                                     );
                                                 })()}
+                                                {/* Timeframe moved below teacher */}
+                                                {canShowTimeFrame &&
+                                                    (!(
+                                                        cancelled || irregular
+                                                    ) ||
+                                                        ((cancelled ||
+                                                            irregular) &&
+                                                            isMerged)) && (
+                                                        <ResponsiveTimeFrame
+                                                            startMin={
+                                                                b.startMin
+                                                            }
+                                                            endMin={b.endMin}
+                                                            cancelled={
+                                                                cancelled &&
+                                                                isMerged
+                                                            }
+                                                        />
+                                                    )}
                                             </>
                                         )}
                                     </FitText>
@@ -943,3 +929,71 @@ const DayColumn: FC<DayColumnProps> = ({
 };
 
 export default DayColumn;
+
+// --- Helper component for responsive timeframe (desktop) ---
+// Displays the time range horizontally when there is enough width; otherwise
+// wraps into a vertical stack:
+//  HH:MM\n+//    –\n+//  HH:MM
+// The dash is centered and slightly muted for readability.
+const MIN_INLINE_TIME_WIDTH = 90; // px threshold before wrapping vertically
+
+const ResponsiveTimeFrame: FC<{
+    startMin: number;
+    endMin: number;
+    cancelled?: boolean;
+}> = ({ startMin, endMin, cancelled = false }) => {
+    const ref = useRef<HTMLDivElement | null>(null);
+    const [wrapVertical, setWrapVertical] = useState(false);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const compute = () => {
+            try {
+                // Measure available width of parent container allocated for the time element.
+                const w =
+                    el.parentElement?.getBoundingClientRect().width ??
+                    el.getBoundingClientRect().width;
+                setWrapVertical(w < MIN_INLINE_TIME_WIDTH);
+            } catch {
+                /* ignore */
+            }
+        };
+        compute();
+        const ro = new ResizeObserver(() => compute());
+        ro.observe(el.parentElement ?? el);
+        window.addEventListener('resize', compute);
+        return () => {
+            ro.disconnect();
+            window.removeEventListener('resize', compute);
+        };
+    }, []);
+
+    if (wrapVertical) {
+        return (
+            <div
+                ref={ref}
+                className={`flex flex-col items-center justify-center leading-tight text-[12px] mt-0.5 ${
+                    cancelled ? 'lesson-cancelled-time' : ''
+                }`}
+                style={{ lineHeight: 1.05 }}
+            >
+                <span className="whitespace-nowrap">{fmtHM(startMin)}</span>
+                <span className="opacity-60 -my-0.5">–</span>
+                <span className="whitespace-nowrap">{fmtHM(endMin)}</span>
+            </div>
+        );
+    }
+    return (
+        <div
+            ref={ref}
+            className={`opacity-90 sm:mt-0 leading-tight text-[12px] ${
+                cancelled ? 'lesson-cancelled-time' : ''
+            }`}
+        >
+            <span className="whitespace-nowrap">
+                {fmtHM(startMin)}–{fmtHM(endMin)}
+            </span>
+        </div>
+    );
+};

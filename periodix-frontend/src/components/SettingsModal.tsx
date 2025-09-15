@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { User } from '../types';
 import { getSharingSettings } from '../api';
+import { isMobileViewport } from '../utils/responsive';
 
 // Import modular components
 import TabNavigation from './settings/TabNavigation';
@@ -40,7 +41,7 @@ export default function SettingsModal({
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         let width: number;
-        if (vw < 640) {
+        if (isMobileViewport(vw)) {
             // Mobile: use near full width with small horizontal padding allowance
             width = vw - 24; // account for outer padding
         } else if (vw < 1024) {

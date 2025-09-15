@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import { useEffect, useState } from 'react';
 import { DEFAULT_PERIODS } from '../utils/periods';
+import { MOBILE_MEDIA_QUERY } from '../utils/responsive';
 import { fmtHM, untisToMinutes } from '../utils/dates';
 
 type TimeAxisProps = {
@@ -23,10 +24,10 @@ const TimeAxis: FC<TimeAxisProps> = ({
     const timesHeight = (END_MIN - START_MIN) * SCALE;
     const headerPx = internalHeaderPx ?? DAY_HEADER_PX;
 
-    // Detect mobile (tailwind sm breakpoint <640px) to match DayColumn's padding behavior
+    // Detect mobile using raised breakpoint (<768px) to match DayColumn's padding behavior
     const [isMobile, setIsMobile] = useState<boolean>(false);
     useEffect(() => {
-        const mq = window.matchMedia('(max-width: 639px)');
+        const mq = window.matchMedia(MOBILE_MEDIA_QUERY);
         const update = () => setIsMobile(mq.matches);
         update();
         mq.addEventListener('change', update);
@@ -41,12 +42,17 @@ const TimeAxis: FC<TimeAxisProps> = ({
         const minGapPx = 15;
         // Position calculation matching DayColumn logic
         // For lesson starts: align with lesson block top
-        const toStartY = (min: number) => Math.round((min - START_MIN) * SCALE + headerPx) + PAD_TOP;
+        const toStartY = (min: number) =>
+            Math.round((min - START_MIN) * SCALE + headerPx) + PAD_TOP;
         // For lesson ends: align with lesson block bottom (accounting for padding and gap budget)
         const PAD_BOTTOM = isMobile ? 2 : 4;
         const GAP_BUDGET = isMobile ? 1 : 2;
-        const toEndY = (min: number) => Math.round((min - START_MIN) * SCALE + headerPx) - PAD_BOTTOM - GAP_BUDGET;
-        const maxY = Math.round((END_MIN - START_MIN) * SCALE + headerPx) + PAD_TOP;
+        const toEndY = (min: number) =>
+            Math.round((min - START_MIN) * SCALE + headerPx) -
+            PAD_BOTTOM -
+            GAP_BUDGET;
+        const maxY =
+            Math.round((END_MIN - START_MIN) * SCALE + headerPx) + PAD_TOP;
         type L = { y: number; label: string };
         const labels: L[] = [];
         let prevEnd: number | null = null;
@@ -57,11 +63,12 @@ const TimeAxis: FC<TimeAxisProps> = ({
             if (i === 0 || prevEnd === null || s !== prevEnd) {
                 labels.push({ y: toStartY(s), label: fmtHM(s) });
             }
-            
+
             // Check if this end time is also a start time of the next lesson
-            const isEndAlsoStart = i < DEFAULT_PERIODS.length - 1 && 
-                                   untisToMinutes(DEFAULT_PERIODS[i + 1].start) === e;
-            
+            const isEndAlsoStart =
+                i < DEFAULT_PERIODS.length - 1 &&
+                untisToMinutes(DEFAULT_PERIODS[i + 1].start) === e;
+
             if (isEndAlsoStart) {
                 // Center between start and end positions when end time is also a start time
                 const startY = toStartY(e);
@@ -138,8 +145,13 @@ const TimeAxis: FC<TimeAxisProps> = ({
                         // Calculate center based on actual lesson block positioning (not just time midpoint)
                         const PAD_BOTTOM = isMobile ? 2 : 4;
                         const GAP_BUDGET = isMobile ? 1 : 2;
-                        const lessonTop = Math.round((sMin - START_MIN) * SCALE + headerPx) + PAD_TOP;
-                        const lessonBottom = Math.round((eMin - START_MIN) * SCALE + headerPx) - PAD_BOTTOM - GAP_BUDGET;
+                        const lessonTop =
+                            Math.round((sMin - START_MIN) * SCALE + headerPx) +
+                            PAD_TOP;
+                        const lessonBottom =
+                            Math.round((eMin - START_MIN) * SCALE + headerPx) -
+                            PAD_BOTTOM -
+                            GAP_BUDGET;
                         const centerY = (lessonTop + lessonBottom) / 2;
                         return (
                             <div
