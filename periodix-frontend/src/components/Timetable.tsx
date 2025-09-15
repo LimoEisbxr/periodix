@@ -1582,6 +1582,7 @@ export default function Timetable({
                                                     gradientOffsets
                                                 }
                                                 hideHeader
+                                                isDeveloperMode={isDeveloperMode}
                                             />
                                         </div>
                                     );
@@ -1719,6 +1720,7 @@ export default function Timetable({
                                                     gradientOffsets
                                                 }
                                                 hideHeader
+                                                isDeveloperMode={isDeveloperMode}
                                             />
                                         </div>
                                     );
@@ -1766,6 +1768,7 @@ export default function Timetable({
                                                     gradientOffsets
                                                 }
                                                 hideHeader
+                                                isDeveloperMode={isDeveloperMode}
                                             />
                                         </div>
                                     );

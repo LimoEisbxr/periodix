@@ -34,6 +34,7 @@ export type DayColumnProps = {
     gradientOffsets?: Record<string, number>; // subject -> offset (0..1)
     hideHeader?: boolean; // suppress built-in header (used when external sticky header is rendered)
     mobileTinyLessonThresholdPx?: number; // threshold for tiny single lessons on mobile (px)
+    isDeveloperMode?: boolean; // enables background click JSON popup
 };
 
 const DayColumn: FC<DayColumnProps> = ({
@@ -52,7 +53,20 @@ const DayColumn: FC<DayColumnProps> = ({
     gradientOffsets,
     hideHeader = false,
     mobileTinyLessonThresholdPx = 56,
+    isDeveloperMode = false,
 }) => {
+    // Developer JSON modal state
+    const [showDayJson, setShowDayJson] = useState(false);
+
+    // Close on Escape when open
+    useEffect(() => {
+        if (!showDayJson) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setShowDayJson(false);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [showDayJson]);
     // Detect mobile (<768px now; previously <640px). Responsive hook to decide hiding side-by-side overlaps.
     // Detect mobile synchronously on first render to avoid a second-pass layout jump
     const [isMobile, setIsMobile] = useState<boolean>(() => {
@@ -177,7 +191,62 @@ const DayColumn: FC<DayColumnProps> = ({
             key={keyStr}
             className="relative px-1.5 first:pl-3 last:pr-3 overflow-hidden rounded-xl"
             style={{ height: containerHeight }}
+            onClick={(e) => {
+                if (!isDeveloperMode) return;
+                // Ignore clicks on lessons or their children
+                const target = e.target as HTMLElement;
+                if (target.closest('.timetable-lesson')) return;
+                // Only trigger when clicking within the column itself
+                setShowDayJson(true);
+            }}
         >
+            {isDeveloperMode && showDayJson && (
+                <div
+                    className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-black/60 backdrop-blur"
+                    onClick={() => setShowDayJson(false)}
+                >
+                    <div
+                        className="relative max-w-[min(1000px,95vw)] w-full max-h-[85vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 border border-slate-200 dark:border-slate-700 flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                Day JSON – {day.toLocaleDateString()} ({items.length} lesson{items.length === 1 ? '' : 's'})
+                            </h3>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    className="text-xs px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600"
+                                    onClick={() => {
+                                        try {
+                                            navigator.clipboard.writeText(
+                                                JSON.stringify(items, null, 2)
+                                            );
+                                        } catch {
+                                            /* ignore */
+                                        }
+                                    }}
+                                >
+                                    Copy
+                                </button>
+                                <button
+                                    type="button"
+                                    className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                                    onClick={() => setShowDayJson(false)}
+                                    aria-label="Close"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto p-3">
+                            <pre className="text-[11px] leading-tight whitespace-pre-wrap break-all font-mono text-slate-800 dark:text-slate-100">
+{JSON.stringify(items, null, 2)}
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="absolute inset-0 rounded-xl ring-1 ring-slate-900/10 dark:ring-white/10 shadow-sm overflow-hidden transition-colors bg-gradient-to-b from-slate-50/85 via-slate-100/80 to-sky-50/70 dark:bg-slate-800/40 dark:bg-none" />
             {/* Today highlight overlay */}
             {isToday && (
@@ -825,7 +894,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 cancelled
                                                                     ? 'lesson-cancelled-teacher'
                                                                     : ''
-                                                            }`}
+                                                            } mb-0.5`}
                                                         >
                                                             {l.te.map(
                                                                 (t, i) => (
@@ -935,7 +1004,21 @@ export default DayColumn;
 // wraps into a vertical stack:
 //  HH:MM\n+//    –\n+//  HH:MM
 // The dash is centered and slightly muted for readability.
-const MIN_INLINE_TIME_WIDTH = 90; // px threshold before wrapping vertically
+// Dynamic timeframe wrapping configuration
+// We measure intrinsic single-line width of the time range and compare against available inner width.
+// Hysteresis prevents flicker when resizing near the boundary.
+// Previous values rarely triggered wrapping because the column width almost always satisfied the deficit rule.
+// We now:
+//  - use a realistic fallback intrinsic width (~120px for "HH:MM–HH:MM")
+//  - wrap when (available + WRAP_ENTER_SLACK) < intrinsic (i.e. we are short by more than slack)
+//  - unwrap when (available - WRAP_EXIT_SLACK) > intrinsic (i.e. we have comfortable surplus)
+//  - add stronger column width based force wrap/unwrap thresholds
+const MIN_FALLBACK_INLINE_WIDTH = 120; // Conservative estimate if measurement fails
+const WRAP_ENTER_SLACK = 2; // Smaller slack => wraps sooner when tight
+const WRAP_EXIT_SLACK = 8; // Larger surplus required to unwrap to avoid oscillation
+// Additional column-based heuristic: even if intrinsic fits, force vertical when the whole column is narrow
+const FORCE_WRAP_COLUMN_WIDTH = 180; // px - below this force vertical layout
+const FORCE_UNWRAP_COLUMN_WIDTH = 190; // px - need to exceed this to allow reverting to single line
 
 const ResponsiveTimeFrame: FC<{
     startMin: number;
@@ -946,28 +1029,104 @@ const ResponsiveTimeFrame: FC<{
     const [wrapVertical, setWrapVertical] = useState(false);
 
     useEffect(() => {
-        const el = ref.current;
-        if (!el) return;
+        const timeEl = ref.current;
+        if (!timeEl) return;
+        const lessonEl = timeEl.closest(
+            '.timetable-lesson'
+        ) as HTMLElement | null;
+        if (!lessonEl) return;
+
+        // Hidden measurer for intrinsic single-line width
+        const meas = document.createElement('span');
+        const cs = getComputedStyle(timeEl);
+        Object.assign(meas.style, {
+            position: 'absolute',
+            visibility: 'hidden',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            fontSize: cs.fontSize,
+            fontFamily: cs.fontFamily,
+            fontWeight: cs.fontWeight,
+            letterSpacing: cs.letterSpacing,
+        } as CSSStyleDeclaration);
+        meas.textContent = `${fmtHM(startMin)}–${fmtHM(endMin)}`;
+        document.body.appendChild(meas);
+
+        let frame = 0;
+        let wrapped = false;
+
         const compute = () => {
             try {
-                // Measure available width of parent container allocated for the time element.
-                const w =
-                    el.parentElement?.getBoundingClientRect().width ??
-                    el.getBoundingClientRect().width;
-                setWrapVertical(w < MIN_INLINE_TIME_WIDTH);
+                const intrinsic =
+                    meas.getBoundingClientRect().width ||
+                    MIN_FALLBACK_INLINE_WIDTH;
+                const lessonRect = lessonEl.getBoundingClientRect();
+                const columnWidth = lessonRect.width;
+                // Derive available width by subtracting horizontal padding + reserved area for right icon stack / room label.
+                const style = getComputedStyle(lessonEl);
+                const padLeft = parseFloat(style.paddingLeft) || 0;
+                const padRight = parseFloat(style.paddingRight) || 0;
+                // Reserve ~30px for potential indicators / internal padding to push earlier wrapping.
+                const available = Math.max(
+                    0,
+                    columnWidth - padLeft - padRight - 30
+                );
+
+                // Column width based forced state overrides intrinsic logic (with hysteresis)
+                if (!wrapped && columnWidth < FORCE_WRAP_COLUMN_WIDTH) {
+                    wrapped = true;
+                    setWrapVertical(true);
+                    return;
+                }
+                if (wrapped && columnWidth > FORCE_UNWRAP_COLUMN_WIDTH) {
+                    // Don't early return; allow intrinsic logic to potentially keep it wrapped if still too tight
+                }
+
+                if (!wrapped) {
+                    // Wrap if after adding enter slack we still cannot fit intrinsic width
+                    if (available + WRAP_ENTER_SLACK < intrinsic) {
+                        wrapped = true;
+                        setWrapVertical(true);
+                    }
+                } else {
+                    // Unwrap only with comfortable surplus + column wide enough
+                    if (
+                        available - WRAP_EXIT_SLACK > intrinsic &&
+                        columnWidth > FORCE_UNWRAP_COLUMN_WIDTH
+                    ) {
+                        wrapped = false;
+                        setWrapVertical(false);
+                    }
+                }
             } catch {
                 /* ignore */
             }
         };
-        compute();
-        const ro = new ResizeObserver(() => compute());
-        ro.observe(el.parentElement ?? el);
+
+        // Initial after layout settle
+        frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(compute);
+        });
+
+        const ro = new ResizeObserver(compute);
+        try {
+            ro.observe(lessonEl);
+        } catch {
+            /* ignore */
+        }
         window.addEventListener('resize', compute);
+        window.addEventListener('orientationchange', compute);
+        document.addEventListener('visibilitychange', compute);
+
         return () => {
+            cancelAnimationFrame(frame);
             ro.disconnect();
             window.removeEventListener('resize', compute);
+            window.removeEventListener('orientationchange', compute);
+            document.removeEventListener('visibilitychange', compute);
+            meas.remove();
         };
-    }, []);
+    }, [startMin, endMin]);
 
     if (wrapVertical) {
         return (
