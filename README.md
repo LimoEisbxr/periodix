@@ -45,8 +45,14 @@ The easiest way to run Periodix is using Docker Compose, which sets up the entir
 3. **Start the application**:
 
     ```bash
+    # Option 1: Standard build (recommended)
     docker compose up -d --build
+    
+    # Option 2: Use the enhanced build script (if you encounter build issues)
+    ./docker-build.sh
     ```
+
+    > **Ubuntu Build Issues:** If you encounter the error `failed to execute bake: read |0: file already closed`, use the build script or set `DOCKER_BUILDKIT=0` in your `.env` file. See [troubleshooting](#troubleshooting) for details.
 
 4. **Access the application**:
     - **Web Interface**: http://localhost:8080
@@ -304,6 +310,57 @@ Monitor application status:
 -   **API Health**: `GET /health` - Returns service status and timestamp
 -   **Database**: Automatic health checks in Docker Compose
 -   **Frontend**: Nginx serves health endpoint at `/health`
+
+## 🛠️ Troubleshooting
+
+### Docker Build Issues on Ubuntu
+
+If you encounter the error `failed to execute bake: read |0: file already closed`, this is a known issue with Docker BuildKit on some Ubuntu systems. 
+
+📖 **See [DOCKER_TROUBLESHOOTING.md](DOCKER_TROUBLESHOOTING.md) for detailed solutions.**
+
+**Quick fixes:**
+
+**Option 1: Use the enhanced build script**
+```bash
+./docker-build.sh
+```
+
+**Option 2: Disable BuildKit permanently**
+```bash
+# Add this to your .env file:
+DOCKER_BUILDKIT=0
+COMPOSE_DOCKER_CLI_BUILD=0
+```
+
+**Option 3: One-time BuildKit disable**
+```bash
+DOCKER_BUILDKIT=0 docker compose up -d --build
+```
+
+**Option 4: Build services individually**
+```bash
+docker compose build frontend
+docker compose build backend
+docker compose up -d
+```
+
+**Option 5: Use legacy Docker Compose (BuildKit-free)**
+```bash
+docker compose -f docker-compose.legacy.yml up -d --build
+```
+
+**Option 6: Clean Docker cache and retry**
+```bash
+docker system prune -a
+docker compose up -d --build
+```
+
+### Other Common Issues
+
+-   **Database connection errors**: Ensure PostgreSQL container is healthy before backend starts
+-   **Port conflicts**: Check that ports 3001, 8080, and 6666 are available
+-   **Environment variables**: Verify `.env` file is properly configured with required secrets
 
 ## 🛠️ Development Notes
 

@@ -1,3 +1,8 @@
+# Alternative Docker Compose configuration for systems with BuildKit issues
+# Use this file if you encounter "failed to execute bake" errors
+# 
+# Usage: docker compose -f docker-compose.legacy.yml up -d --build
+
 services:
     db:
         image: postgres:16-alpine
@@ -23,10 +28,10 @@ services:
         build:
             context: ./periodix-backend
             dockerfile: Dockerfile
-            # Add build args to prevent build cache issues
-            args:
-                - DATABASE_URL=${DATABASE_URL}
-                - JWT_SECRET=${JWT_SECRET}
+            # Explicitly disable advanced BuildKit features
+            target: runtime
+            # Use no-cache to avoid BuildKit cache issues
+            no_cache: true
         depends_on:
             db:
                 condition: service_healthy
@@ -38,9 +43,7 @@ services:
             JWT_SECRET: ${JWT_SECRET}
             PORT: ${PORT}
             PERIODIX_MASTER_KEY: ${PERIODIX_MASTER_KEY}
-            # Do not override CORS_ORIGIN so env file or runtime env controls it; if unset, backend reflects Origin
             CORS_ORIGIN: ${CORS_ORIGIN}
-            # Skip prisma generate at runtime because it's already done in build stage; set to 0 to force regenerate
             PRISMA_SKIP_RUNTIME_GENERATE: 1
         ports:
             - '3001:3001'
@@ -56,9 +59,10 @@ services:
         build:
             context: ./periodix-frontend
             dockerfile: Dockerfile
-            # Add build args for Vite environment variables
-            args:
-                - VITE_ENABLE_DEVELOPER_MODE=${VITE_ENABLE_DEVELOPER_MODE:-false}
+            # Explicitly disable advanced BuildKit features
+            target: runtime
+            # Use no-cache to avoid BuildKit cache issues
+            no_cache: true
         depends_on:
             backend:
                 condition: service_healthy
