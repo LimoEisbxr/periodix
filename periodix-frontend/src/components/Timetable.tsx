@@ -604,13 +604,33 @@ export default function Timetable({
     // Lifecycle reset: when page/tab is hidden or app backgrounded (PWA iOS), ensure we reset drag/animation state
     useEffect(() => {
         function resetTransientGestureState() {
-            // Only reset if we are mid drag or have a non-zero translateX without active animation
+            // Reset state variables
             setIsDragging(false);
             setTranslateX(0);
             setIsAnimating(false);
+            setIsPulling(false);
+            setPullDistance(0);
+            
+            // Reset all touch tracking refs to prevent stale gesture state
+            // This fixes the issue where swiping doesn't work after PWA close/reopen
+            // because the refs retain old touch values from previous session
+            touchStartX.current = null;
+            touchStartY.current = null;
+            touchStartTime.current = null;
+            lastMoveXRef.current = null;
+            lastMoveTimeRef.current = null;
+            
+            // Reset ref mirrors to match state
+            isDraggingRef.current = false;
+            isAnimatingRef.current = false;
+            isPullingRef.current = false;
+            pullDistanceRef.current = 0;
         }
         const handleVisibility = () => {
             if (document.hidden) {
+                resetTransientGestureState();
+            } else {
+                // Also reset when becoming visible again to ensure clean state on PWA reopen
                 resetTransientGestureState();
             }
         };
@@ -618,10 +638,12 @@ export default function Timetable({
         window.addEventListener('visibilitychange', handleVisibility);
         window.addEventListener('pagehide', resetTransientGestureState);
         window.addEventListener('blur', resetTransientGestureState);
+        window.addEventListener('focus', resetTransientGestureState);
         return () => {
             window.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('pagehide', resetTransientGestureState);
             window.removeEventListener('blur', resetTransientGestureState);
+            window.removeEventListener('focus', resetTransientGestureState);
         };
     }, []);
     const [gestureAttachAttempts, setGestureAttachAttempts] = useState(0);
