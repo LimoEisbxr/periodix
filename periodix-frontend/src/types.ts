@@ -5,6 +5,7 @@ export type User = {
     isAdmin?: boolean;
     isUserManager?: boolean;
     school?: string;
+    timezone?: string; // IANA timezone identifier
 };
 
 export type TimetableResponse = {

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { User } from '../../types';
-import { updateMyDisplayName } from '../../api';
+import { updateMyProfile } from '../../api';
 
 interface NicknameChangeProps {
     token: string;
@@ -10,82 +10,137 @@ interface NicknameChangeProps {
 
 export default function NicknameChange({ token, user, onUserUpdate }: NicknameChangeProps) {
     const [myDisplayName, setMyDisplayName] = useState<string>(user.displayName ?? '');
-    const [savingMyName, setSavingMyName] = useState(false);
-    const [myNameError, setMyNameError] = useState<string | null>(null);
-    const [myNameSaved, setMyNameSaved] = useState(false);
+    const [myTimezone, setMyTimezone] = useState<string>(user.timezone ?? 'Europe/Berlin');
+    const [savingProfile, setSavingProfile] = useState(false);
+    const [profileError, setProfileError] = useState<string | null>(null);
+    const [profileSaved, setProfileSaved] = useState(false);
 
-    const handleSaveMyDisplayName = useCallback(async () => {
-        setSavingMyName(true);
-        setMyNameError(null);
-        setMyNameSaved(false);
+    const handleSaveProfile = useCallback(async () => {
+        setSavingProfile(true);
+        setProfileError(null);
+        setProfileSaved(false);
         try {
             const trimmedName = myDisplayName.trim();
             const displayNameToSave = trimmedName === '' ? null : trimmedName;
-            await updateMyDisplayName(token, displayNameToSave);
+            
+            const result = await updateMyProfile(token, { 
+                displayName: displayNameToSave,
+                timezone: myTimezone
+            });
 
             // Update the user in the parent component
             if (onUserUpdate) {
                 onUserUpdate({
                     ...user,
                     displayName: displayNameToSave,
+                    timezone: myTimezone,
                 });
             }
-            setMyNameSaved(true);
-            setTimeout(() => setMyNameSaved(false), 3000);
+            setProfileSaved(true);
+            setTimeout(() => setProfileSaved(false), 3000);
         } catch (e) {
-            setMyNameError(
-                e instanceof Error ? e.message : 'Failed to update display name'
+            setProfileError(
+                e instanceof Error ? e.message : 'Failed to update profile'
             );
         } finally {
-            setSavingMyName(false);
+            setSavingProfile(false);
         }
-    }, [token, myDisplayName, user, onUserUpdate]);
+    }, [token, myDisplayName, myTimezone, user, onUserUpdate]);
 
-    // Remove conditional rendering since we handle visibility in parent
+    // Common timezones list
+    const commonTimezones = [
+        'Europe/Berlin',
+        'Europe/Vienna', 
+        'Europe/Zurich',
+        'Europe/Paris',
+        'Europe/London',
+        'Europe/Rome',
+        'Europe/Madrid',
+        'Europe/Amsterdam',
+        'America/New_York',
+        'America/Chicago',
+        'America/Denver',
+        'America/Los_Angeles',
+        'Asia/Tokyo',
+        'Asia/Shanghai',
+        'Australia/Sydney',
+    ];
+
+    const hasChanges = myDisplayName !== (user.displayName ?? '') || myTimezone !== (user.timezone ?? 'Europe/Berlin');
 
     return (
         <div>
             <h3 className="text-lg font-medium mb-4 text-slate-900 dark:text-slate-100">
-                Display Name Settings
+                Profile Settings
             </h3>
-            <div className="mb-4">
-                <label
-                    htmlFor="displayName"
-                    className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
-                >
-                    Display Name
-                </label>
-                <div className="flex gap-2">
+            
+            <div className="space-y-4">
+                <div>
+                    <label
+                        htmlFor="displayName"
+                        className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
+                    >
+                        Display Name
+                    </label>
                     <input
                         id="displayName"
-                        className="input flex-1"
+                        className="input w-full"
                         placeholder="Your display name"
                         value={myDisplayName}
                         onChange={(e) => {
                             setMyDisplayName(e.target.value);
-                            setMyNameSaved(false);
+                            setProfileSaved(false);
                         }}
-                        disabled={savingMyName}
+                        disabled={savingProfile}
                     />
+                </div>
+                
+                <div>
+                    <label
+                        htmlFor="timezone"
+                        className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
+                    >
+                        Timezone for Notifications
+                    </label>
+                    <select
+                        id="timezone"
+                        className="input w-full"
+                        value={myTimezone}
+                        onChange={(e) => {
+                            setMyTimezone(e.target.value);
+                            setProfileSaved(false);
+                        }}
+                        disabled={savingProfile}
+                    >
+                        {commonTimezones.map(tz => (
+                            <option key={tz} value={tz}>
+                                {tz.replace('_', ' ')}
+                            </option>
+                        ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        This determines when you receive lesson notifications (e.g., "5 minutes before")
+                    </p>
+                </div>
+                
+                <div className="flex gap-2">
                     <button
                         className="btn-primary"
-                        onClick={handleSaveMyDisplayName}
-                        disabled={
-                            savingMyName ||
-                            myDisplayName === (user.displayName ?? '')
-                        }
+                        onClick={handleSaveProfile}
+                        disabled={savingProfile || !hasChanges}
                     >
-                        {savingMyName ? 'Saving...' : 'Save'}
+                        {savingProfile ? 'Saving...' : 'Save Changes'}
                     </button>
                 </div>
-                {myNameError && (
-                    <div className="mt-2 text-sm text-red-600 dark:text-red-400">
-                        {myNameError}
+                
+                {profileError && (
+                    <div className="text-sm text-red-600 dark:text-red-400">
+                        {profileError}
                     </div>
                 )}
-                {myNameSaved && !myNameError && (
-                    <div className="mt-2 text-sm text-green-600 dark:text-green-400">
-                        Display name updated!
+                {profileSaved && !profileError && (
+                    <div className="text-sm text-green-600 dark:text-green-400">
+                        Profile updated! Notifications will now use your selected timezone.
                     </div>
                 )}
             </div>

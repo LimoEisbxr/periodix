@@ -302,19 +302,19 @@ export async function updateUserDisplayName(
     });
 }
 
-// New: current user can update their own display name
-export async function updateMyDisplayName(
+// New: current user can update their own display name and timezone
+export async function updateMyProfile(
     token: string,
-    displayName: string | null
+    data: { displayName?: string | null; timezone?: string }
 ): Promise<{
-    user: { id: string; username: string; displayName: string | null };
+    user: { id: string; username: string; displayName: string | null; timezone?: string };
 }> {
     return api<{
-        user: { id: string; username: string; displayName: string | null };
+        user: { id: string; username: string; displayName: string | null; timezone?: string };
     }>(`/api/users/me`, {
         method: 'PATCH',
         token,
-        body: JSON.stringify({ displayName }),
+        body: JSON.stringify(data),
     });
 }
 

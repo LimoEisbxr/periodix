@@ -60,6 +60,7 @@ router.post('/login', untisUserLimiter, async (req, res) => {
                 username: ADMIN_USERNAME,
                 displayName: 'Administrator',
                 isAdmin: true,
+                timezone: 'Europe/Berlin', // Default timezone for admin
             },
         });
     }
@@ -91,6 +92,7 @@ router.post('/login', untisUserLimiter, async (req, res) => {
                 displayName: existingUser.displayName,
                 isAdmin: false,
                 isUserManager: existingUser.isUserManager || false,
+                timezone: existingUser.timezone,
             },
         });
     }
@@ -172,6 +174,7 @@ router.post('/login', untisUserLimiter, async (req, res) => {
             displayName: user.displayName,
             isAdmin: false,
             isUserManager: user.isUserManager || false,
+            timezone: user.timezone,
         },
     });
 });
