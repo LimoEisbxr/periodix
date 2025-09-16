@@ -35,8 +35,11 @@ declare global {
                 isDragging: boolean;
                 lastNavigationTime: number;
                 now: number;
+                gestureAttachAttempts: number;
+                forceGestureReattach: number;
             };
             forceReset: () => string;
+            forceGestureReattach: () => string;
         };
     }
 }
@@ -602,6 +605,7 @@ export default function Timetable({
     }, [onRefresh]);
 
     // Lifecycle reset: when page/tab is hidden or app backgrounded (PWA iOS), ensure we reset drag/animation state
+    const [forceGestureReattach, setForceGestureReattach] = useState(0);
     useEffect(() => {
         function resetTransientGestureState() {
             // Reset state variables
@@ -626,10 +630,10 @@ export default function Timetable({
             isPullingRef.current = false;
             pullDistanceRef.current = 0;
             
-            // Reset gesture attachment attempts to force re-attachment after PWA resume
-            // This fixes the issue where gesture handlers are not re-attached after PWA close/reopen
-            // because the retry counter had reached its limit before the app was suspended
-            setGestureAttachAttempts(0);
+            // Force gesture re-attachment by incrementing the force flag
+            // This ensures gesture handlers are properly re-attached after PWA resume
+            // even when the container ref already exists
+            setForceGestureReattach(prev => prev + 1);
         }
         const handleVisibility = () => {
             if (document.hidden) {
@@ -644,11 +648,27 @@ export default function Timetable({
         window.addEventListener('pagehide', resetTransientGestureState);
         window.addEventListener('blur', resetTransientGestureState);
         window.addEventListener('focus', resetTransientGestureState);
+        
+        // Additional PWA-specific events for trackpad-based suspend/resume
+        // These events may fire differently when PWA is closed via trackpad gestures
+        window.addEventListener('beforeunload', resetTransientGestureState);
+        window.addEventListener('unload', resetTransientGestureState);
+        document.addEventListener('resume', resetTransientGestureState);
+        document.addEventListener('pause', resetTransientGestureState);
+        
+        // Handle potential input device changes that might affect gesture handling
+        window.addEventListener('pointercancel', resetTransientGestureState);
+        
         return () => {
             window.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('pagehide', resetTransientGestureState);
             window.removeEventListener('blur', resetTransientGestureState);
             window.removeEventListener('focus', resetTransientGestureState);
+            window.removeEventListener('beforeunload', resetTransientGestureState);
+            window.removeEventListener('unload', resetTransientGestureState);
+            document.removeEventListener('resume', resetTransientGestureState);
+            document.removeEventListener('pause', resetTransientGestureState);
+            window.removeEventListener('pointercancel', resetTransientGestureState);
         };
     }, []);
     const [gestureAttachAttempts, setGestureAttachAttempts] = useState(0);
@@ -673,6 +693,7 @@ export default function Timetable({
         if (isDebugRef.current)
             console.debug('[TT] gesture handlers attach', {
                 attempt: gestureAttachAttempts,
+                forceReattach: forceGestureReattach,
             });
 
         // Capture the ref at the beginning of the effect
@@ -1229,18 +1250,27 @@ export default function Timetable({
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [gestureAttachAttempts]);
+    }, [gestureAttachAttempts, forceGestureReattach]);
 
-    // // Watchdog for stuck animation or leftover translation (every 1s)
-    // useEffect(() => {
-    //     const interval = setInterval(() => {
-    //         if (!isAnimatingRef.current && Math.abs(translateXRef.current) > 2) {
-    //             setTranslateX(0);
-    //             if (isDebugRef.current) console.debug('[TT] watchdog: corrected non-zero translateX while not animating');
-    //         }
-    //     }, 1000);
-    //     return () => clearInterval(interval);
-    // }, []);
+    // Watchdog for stuck animation or leftover translation, plus gesture handler health check
+    useEffect(() => {
+        const interval = setInterval(() => {
+            // Reset stuck animation state
+            if (!isAnimatingRef.current && Math.abs(translateXRef.current) > 2) {
+                setTranslateX(0);
+                if (isDebugRef.current) console.debug('[TT] watchdog: corrected non-zero translateX while not animating');
+            }
+            
+            // Periodically ensure gesture handlers are attached by forcing re-attachment
+            // This helps catch cases where PWA suspend/resume doesn't trigger lifecycle events properly
+            // Especially important for trackpad-based PWA closing which may bypass normal event flow
+            if (Date.now() % 30000 < 1000) { // Every ~30 seconds (when interval fires close to 30s mark)
+                setForceGestureReattach(prev => prev + 1);
+                if (isDebugRef.current) console.debug('[TT] watchdog: periodic gesture reattachment');
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Expose minimal debug snapshot API on window for deeper inspection when user reports being stuck
     useEffect(() => {
@@ -1252,6 +1282,8 @@ export default function Timetable({
                 isDragging,
                 lastNavigationTime: lastNavigationTimeRef.current,
                 now: Date.now(),
+                gestureAttachAttempts,
+                forceGestureReattach,
             }),
             forceReset: () => {
                 setTranslateX(0);
@@ -1259,13 +1291,17 @@ export default function Timetable({
                 setIsDragging(false);
                 return 'reset-done';
             },
+            forceGestureReattach: () => {
+                setForceGestureReattach(prev => prev + 1);
+                return 'gesture-reattach-forced';
+            },
         };
         return () => {
             if (window.PeriodixTTDebug) {
                 delete window.PeriodixTTDebug;
             }
         };
-    }, [isDebug, translateX, isAnimating, isDragging]);
+    }, [isDebug, translateX, isAnimating, isDragging, gestureAttachAttempts, forceGestureReattach]);
 
     // Track current time and compute line position
     const [now, setNow] = useState<Date>(() => new Date());
