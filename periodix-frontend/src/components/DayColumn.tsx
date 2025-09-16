@@ -362,11 +362,11 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Create tinted gradient for cancelled/irregular lessons using CSS overlays
                     const gradient = baseGradient;
                     const statusOverlay = cancelled
-                        ? // Increased red tint opacity for better contrast on cancelled lessons
-                          'linear-gradient(to right, rgba(239, 68, 68, 0.65), rgba(239, 68, 68, 0.55), rgba(239, 68, 68, 0.65))'
+                        ? // Reduced red tint opacity due to better border separation
+                          'linear-gradient(to right, rgba(239, 68, 68, 0.4), rgba(239, 68, 68, 0.3), rgba(239, 68, 68, 0.4))'
                         : irregular
-                        ? // Increased green tint opacity for better contrast on irregular lessons
-                          'linear-gradient(to right, rgba(16, 185, 129, 0.75), rgba(16, 185, 129, 0.65), rgba(16, 185, 129, 0.75))'
+                        ? // Reduced green tint opacity due to better border separation  
+                          'linear-gradient(to right, rgba(16, 185, 129, 0.5), rgba(16, 185, 129, 0.4), rgba(16, 185, 129, 0.5))'
                         : null;
 
                     const GAP_PCT = 1.5; // Reduced gap for better space utilization
@@ -495,9 +495,9 @@ const DayColumn: FC<DayColumnProps> = ({
                             key={l.id}
                             className={`timetable-lesson absolute rounded-md p-2 sm:p-2 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
-                                    ? 'border-6 border-rose-600 dark:border-rose-500'
+                                    ? 'border-4 border-rose-600 dark:border-rose-500'
                                     : irregular
-                                    ? 'border-6 border-emerald-500 dark:border-emerald-400'
+                                    ? 'border-4 border-emerald-500 dark:border-emerald-400'
                                     : 'ring-1 ring-slate-900/10 dark:ring-white/15'
                             }`}
                             style={{
@@ -511,8 +511,10 @@ const DayColumn: FC<DayColumnProps> = ({
                                 // Larger invisible hit target for touch
                                 paddingTop: isMobile ? 6 : undefined,
                                 paddingBottom: isMobile ? 6 : undefined,
-                                boxShadow:
-                                    '0 1px 2px -1px rgba(0,0,0,0.25), 0 2px 6px -1px rgba(0,0,0,0.25)',
+                                boxShadow: cancelled || irregular
+                                    ? // Add inner white border for cancelled/irregular lessons, plus existing shadow
+                                      'inset 0 0 0 2px rgba(255, 255, 255, 0.7), 0 1px 2px -1px rgba(0,0,0,0.25), 0 2px 6px -1px rgba(0,0,0,0.25)'
+                                    : '0 1px 2px -1px rgba(0,0,0,0.25), 0 2px 6px -1px rgba(0,0,0,0.25)',
                             }}
                             title={`${fmtHM(b.startMin)}–${fmtHM(
                                 b.endMin
