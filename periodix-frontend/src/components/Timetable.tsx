@@ -602,6 +602,7 @@ export default function Timetable({
     }, [onRefresh]);
 
     // Lifecycle reset: when page/tab is hidden or app backgrounded (PWA iOS), ensure we reset drag/animation state
+    const [forceGestureReattach, setForceGestureReattach] = useState(0);
     useEffect(() => {
         function resetTransientGestureState() {
             // Reset state variables
@@ -626,10 +627,10 @@ export default function Timetable({
             isPullingRef.current = false;
             pullDistanceRef.current = 0;
             
-            // Reset gesture attachment attempts to force re-attachment after PWA resume
-            // This fixes the issue where gesture handlers are not re-attached after PWA close/reopen
-            // because the retry counter had reached its limit before the app was suspended
-            setGestureAttachAttempts(0);
+            // Force gesture re-attachment by incrementing the force flag
+            // This ensures gesture handlers are properly re-attached after PWA resume
+            // even when the container ref already exists
+            setForceGestureReattach(prev => prev + 1);
         }
         const handleVisibility = () => {
             if (document.hidden) {
@@ -673,6 +674,7 @@ export default function Timetable({
         if (isDebugRef.current)
             console.debug('[TT] gesture handlers attach', {
                 attempt: gestureAttachAttempts,
+                forceReattach: forceGestureReattach,
             });
 
         // Capture the ref at the beginning of the effect
@@ -1229,7 +1231,7 @@ export default function Timetable({
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [gestureAttachAttempts]);
+    }, [gestureAttachAttempts, forceGestureReattach]);
 
     // // Watchdog for stuck animation or leftover translation (every 1s)
     // useEffect(() => {
