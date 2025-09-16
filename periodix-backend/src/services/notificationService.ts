@@ -1,5 +1,6 @@
 import { prisma } from '../store/prisma.js';
 import { getOrFetchTimetableRange } from './untisService.js';
+import { NOTIFICATION_TIMEZONE } from '../server/config.js';
 import webpush from 'web-push';
 
 // Initialize web-push with VAPID keys
@@ -43,6 +44,15 @@ export class NotificationService {
             NotificationService.instance = new NotificationService();
         }
         return NotificationService.instance;
+    }
+
+    /**
+     * Get the current date and time in the notification timezone.
+     * This ensures lesson notifications are sent based on the school's local time,
+     * not the server's UTC time.
+     */
+    private getNowInNotificationTimezone(): Date {
+        return new Date(new Date().toLocaleString("en-US", { timeZone: NOTIFICATION_TIMEZONE }));
     }
 
     // Create a notification (with robust deduplication)
@@ -509,7 +519,7 @@ export class NotificationService {
             }
 
             // Get current date info
-            const today = new Date();
+            const today = this.getNowInNotificationTimezone();
             const todayString =
                 today.getFullYear() * 10000 +
                 (today.getMonth() + 1) * 100 +
@@ -680,7 +690,7 @@ export class NotificationService {
 
             // Upcoming lesson reminders (Beta): send 5 minutes before start time
             if (options?.onlyUpcoming && user.notificationSettings) {
-                const now = new Date();
+                const now = this.getNowInNotificationTimezone();
                 const nowMinutes = now.getHours() * 60 + now.getMinutes();
                 const todayYmd =
                     now.getFullYear() * 10000 +
@@ -835,7 +845,7 @@ export class NotificationService {
                     timetables: { orderBy: { createdAt: 'desc' }, take: 1 },
                 },
             });
-            const now = new Date();
+            const now = this.getNowInNotificationTimezone();
             const todayYmd =
                 now.getFullYear() * 10000 +
                 (now.getMonth() + 1) * 100 +
@@ -867,7 +877,7 @@ export class NotificationService {
                     if (!hasToday) {
                         // Attempt a lightweight refresh for just today to populate cache.
                         try {
-                            const start = new Date();
+                            const start = new Date(now);
                             start.setHours(0, 0, 0, 0);
                             const end = new Date(start);
                             end.setHours(23, 59, 59, 999);

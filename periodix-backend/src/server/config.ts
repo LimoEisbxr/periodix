@@ -29,3 +29,7 @@ export const ADMIN_PASSWORD: string = process.env.PERIODIX_ADMIN_PASSWORD || '';
 // Whitelist configuration for closed beta (DB-backed)
 export const WHITELIST_ENABLED: boolean =
     process.env.WHITELIST_ENABLED === 'true';
+
+// Timezone for lesson notifications (defaults to Europe/Berlin for German schools)
+export const NOTIFICATION_TIMEZONE: string = 
+    process.env.NOTIFICATION_TIMEZONE || 'Europe/Berlin';
