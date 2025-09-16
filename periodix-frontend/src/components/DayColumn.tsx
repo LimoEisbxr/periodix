@@ -362,10 +362,11 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Create tinted gradient for cancelled/irregular lessons using CSS overlays
                     const gradient = baseGradient;
                     const statusOverlay = cancelled
-                        ? // Reduced red tint opacity for cancelled lessons (was 0.6/0.55/0.6)
-                          'linear-gradient(to right, rgba(239, 68, 68, 0.38), rgba(239, 68, 68, 0.32), rgba(239, 68, 68, 0.38))'
+                        ? // Increased red tint opacity for better contrast on cancelled lessons
+                          'linear-gradient(to right, rgba(239, 68, 68, 0.65), rgba(239, 68, 68, 0.55), rgba(239, 68, 68, 0.65))'
                         : irregular
-                        ? 'linear-gradient(to right, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.55), rgba(16, 185, 129, 0.6))'
+                        ? // Increased green tint opacity for better contrast on irregular lessons
+                          'linear-gradient(to right, rgba(16, 185, 129, 0.75), rgba(16, 185, 129, 0.65), rgba(16, 185, 129, 0.75))'
                         : null;
 
                     const GAP_PCT = 1.5; // Reduced gap for better space utilization
