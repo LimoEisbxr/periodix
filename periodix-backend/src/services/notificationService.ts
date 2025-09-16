@@ -45,6 +45,15 @@ export class NotificationService {
         return NotificationService.instance;
     }
 
+    /**
+     * Get the current date and time in the specified user's timezone.
+     * This ensures lesson notifications are sent based on the user's local time,
+     * not the server's UTC time.
+     */
+    private getNowInUserTimezone(userTimezone: string): Date {
+        return new Date(new Date().toLocaleString("en-US", { timeZone: userTimezone }));
+    }
+
     // Create a notification (with robust deduplication)
     async createNotification(data: NotificationData): Promise<void> {
         try {
@@ -508,8 +517,8 @@ export class NotificationService {
                 return;
             }
 
-            // Get current date info
-            const today = new Date();
+            // Get current date info using the user's timezone
+            const today = this.getNowInUserTimezone(user.timezone || 'Europe/Berlin');
             const todayString =
                 today.getFullYear() * 10000 +
                 (today.getMonth() + 1) * 100 +
@@ -680,7 +689,7 @@ export class NotificationService {
 
             // Upcoming lesson reminders (Beta): send 5 minutes before start time
             if (options?.onlyUpcoming && user.notificationSettings) {
-                const now = new Date();
+                const now = this.getNowInUserTimezone(user.timezone || 'Europe/Berlin');
                 const nowMinutes = now.getHours() * 60 + now.getMinutes();
                 const todayYmd =
                     now.getFullYear() * 10000 +
@@ -835,14 +844,16 @@ export class NotificationService {
                     timetables: { orderBy: { createdAt: 'desc' }, take: 1 },
                 },
             });
-            const now = new Date();
-            const todayYmd =
-                now.getFullYear() * 10000 +
-                (now.getMonth() + 1) * 100 +
-                now.getDate();
 
             for (const user of users) {
                 try {
+                    // Calculate current time in the user's timezone
+                    const now = this.getNowInUserTimezone(user.timezone || 'Europe/Berlin');
+                    const todayYmd =
+                        now.getFullYear() * 10000 +
+                        (now.getMonth() + 1) * 100 +
+                        now.getDate();
+
                     // Only process upcoming reminders if any device opted in
                     const devicePrefs = (user.notificationSettings
                         ?.devicePreferences || {}) as Record<string, any>;
@@ -867,7 +878,7 @@ export class NotificationService {
                     if (!hasToday) {
                         // Attempt a lightweight refresh for just today to populate cache.
                         try {
-                            const start = new Date();
+                            const start = new Date(now);
                             start.setHours(0, 0, 0, 0);
                             const end = new Date(start);
                             end.setHours(23, 59, 59, 999);

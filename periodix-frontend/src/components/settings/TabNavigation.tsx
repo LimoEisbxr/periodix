@@ -30,7 +30,7 @@ export default function TabNavigation({
         }
         if (user.isUserManager) {
             return [
-                { id: 'nickname', label: 'Nickname Change' },
+                { id: 'nickname', label: 'Profile' },
                 { id: 'sharing', label: 'Personal Sharing Settings' },
                 { id: 'notifications', label: 'Notification Settings' },
                 { id: 'access', label: 'Access' },
@@ -38,7 +38,7 @@ export default function TabNavigation({
             ];
         }
         return [
-            { id: 'nickname', label: 'Nickname Change' },
+            { id: 'nickname', label: 'Profile' },
             { id: 'sharing', label: 'Personal Sharing Settings' },
             { id: 'notifications', label: 'Notification Settings' },
         ];

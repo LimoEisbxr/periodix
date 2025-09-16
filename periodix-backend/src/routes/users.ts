@@ -9,6 +9,7 @@ const router = Router();
 const querySchema = z.object({ q: z.string().trim().min(1).max(100) });
 const updateMeSchema = z.object({
     displayName: z.string().trim().max(100).nullable(),
+    timezone: z.string().trim().min(1).max(100).optional(), // IANA timezone identifier
 });
 
 // Authenticated user search (by username/displayName)
@@ -157,10 +158,17 @@ router.patch('/me', authMiddleware, async (req, res) => {
     }
     try {
         const userId = req.user!.id;
+        const updateData: any = { displayName: parsed.data.displayName };
+        
+        // Add timezone to update data if provided
+        if (parsed.data.timezone !== undefined) {
+            updateData.timezone = parsed.data.timezone;
+        }
+        
         const user = await prisma.user.update({
             where: { id: userId },
-            data: { displayName: parsed.data.displayName },
-            select: { id: true, username: true, displayName: true },
+            data: updateData,
+            select: { id: true, username: true, displayName: true, timezone: true },
         });
         res.json({ user });
     } catch (e: any) {
