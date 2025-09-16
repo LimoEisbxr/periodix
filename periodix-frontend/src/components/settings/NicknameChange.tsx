@@ -23,7 +23,7 @@ export default function NicknameChange({ token, user, onUserUpdate }: NicknameCh
             const trimmedName = myDisplayName.trim();
             const displayNameToSave = trimmedName === '' ? null : trimmedName;
             
-            const result = await updateMyProfile(token, { 
+            await updateMyProfile(token, { 
                 displayName: displayNameToSave,
                 timezone: myTimezone
             });

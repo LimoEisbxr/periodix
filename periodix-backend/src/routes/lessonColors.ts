@@ -9,7 +9,7 @@ const router = Router();
 
 // Rate limit for color operations
 const colorLimiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute
+    windowMs: 1, // 60 * 1000, // 1 minute
     limit: 300, // increased: allow up to 300 requests per minute per IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
