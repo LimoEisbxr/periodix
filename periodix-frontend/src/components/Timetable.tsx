@@ -1687,7 +1687,7 @@ export default function Timetable({
                                     >
                                         <div className="relative w-full">
                                             {/* Base thin line spanning full width with subtle glow */}
-                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" style={{ boxShadow: '0 0 2px rgba(255,255,255,0.8), 0 1px 0 rgba(255,255,255,0.6), 0 -1px 0 rgba(255,255,255,0.6)' }} />
 
                                             {/* Seamless thicker overlay for current day with tapered edges */}
                                             <div
@@ -1713,6 +1713,7 @@ export default function Timetable({
                                                         transparent 100%
                                                     )`,
                                                     filter: 'drop-shadow(0 0 6px rgba(244,63,94,0.6))',
+                                                    boxShadow: '0 0 3px rgba(255,255,255,0.7), 0 1px 0 rgba(255,255,255,0.5), 0 -1px 0 rgba(255,255,255,0.5)',
                                                 }}
                                             />
 
