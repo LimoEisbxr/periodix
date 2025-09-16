@@ -625,6 +625,11 @@ export default function Timetable({
             isAnimatingRef.current = false;
             isPullingRef.current = false;
             pullDistanceRef.current = 0;
+            
+            // Reset gesture attachment attempts to force re-attachment after PWA resume
+            // This fixes the issue where gesture handlers are not re-attached after PWA close/reopen
+            // because the retry counter had reached its limit before the app was suspended
+            setGestureAttachAttempts(0);
         }
         const handleVisibility = () => {
             if (document.hidden) {
@@ -1189,7 +1194,22 @@ export default function Timetable({
         // touchcancel fires on iOS (esp. PWA) when system interrupts (notification, gesture) mid drag
         const handleTouchCancel = () => {
             setIsDragging(false);
+            isDraggingRef.current = false;
             setTranslateX(0);
+            translateXRef.current = 0;
+            setIsPulling(false);
+            isPullingRef.current = false;
+            setPullDistance(0);
+            pullDistanceRef.current = 0;
+            
+            // Reset touch tracking refs to prevent stale gesture state
+            touchStartX.current = null;
+            touchStartY.current = null;
+            touchStartTime.current = null;
+            lastMoveXRef.current = null;
+            lastMoveTimeRef.current = null;
+            
+            skipSwipe = false;
         };
         el.addEventListener('touchcancel', handleTouchCancel, {
             passive: true,
