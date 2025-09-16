@@ -7,10 +7,16 @@ ARG VITE_ENABLE_DEVELOPER_MODE
 ENV VITE_ENABLE_DEVELOPER_MODE=$VITE_ENABLE_DEVELOPER_MODE
 
 COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
-RUN if [ -f package-lock.json ]; then npm ci; \
-    elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
-    elif [ -f yarn.lock ]; then npm i -g yarn && yarn install --frozen-lockfile; \
-    else npm i; fi
+# Prefer reproducible clean install; fall back to npm install if lockfile is out of sync (mirrors backend strategy)
+RUN if [ -f package-lock.json ]; then \
+            (npm ci || (echo '[Dockerfile] npm ci failed (likely lock mismatch) falling back to npm install' && npm install)); \
+        elif [ -f pnpm-lock.yaml ]; then \
+            npm i -g pnpm && pnpm i --frozen-lockfile; \
+        elif [ -f yarn.lock ]; then \
+            npm i -g yarn && yarn install --frozen-lockfile; \
+        else \
+            npm install; \
+        fi
 
 COPY . .
 RUN npm run build
