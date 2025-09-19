@@ -17,6 +17,8 @@ router.get('/', authMiddleware, async (req, res) => {
             where: {
                 userId: req.user.id,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                // Exclude upcoming notifications from the log - they should only be sent, not shown in the bell icon log
+                NOT: { type: 'upcoming_lesson' },
             },
             orderBy: { createdAt: 'desc' },
             take: 50, // Limit to 50 most recent
