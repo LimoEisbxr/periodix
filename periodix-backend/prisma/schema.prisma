@@ -24,13 +24,17 @@ model User {
 
     displayName   String?
     isUserManager Boolean @default(false) // Can manage users but is not full admin
-    
+
     // User timezone for notifications (IANA timezone identifier)
     // Defaults to Europe/Berlin for backward compatibility with German schools
-    timezone      String  @default("Europe/Berlin")
+    timezone String @default("Europe/Berlin")
 
     // Sharing preferences
     sharingEnabled Boolean @default(true) // By default, new accounts enable sharing
+
+    // User preferences (synced across devices)
+    hiddenSubjects      Json?
+    onboardingCompleted Boolean @default(false)
 
     // Relationships
     timetables   Timetable[]

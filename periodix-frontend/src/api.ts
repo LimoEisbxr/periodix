@@ -307,10 +307,20 @@ export async function updateMyProfile(
     token: string,
     data: { displayName?: string | null; timezone?: string }
 ): Promise<{
-    user: { id: string; username: string; displayName: string | null; timezone?: string };
+    user: {
+        id: string;
+        username: string;
+        displayName: string | null;
+        timezone?: string;
+    };
 }> {
     return api<{
-        user: { id: string; username: string; displayName: string | null; timezone?: string };
+        user: {
+            id: string;
+            username: string;
+            displayName: string | null;
+            timezone?: string;
+        };
     }>(`/api/users/me`, {
         method: 'PATCH',
         token,
@@ -869,3 +879,29 @@ export async function getUserInsight(
 }
 
 export { API_BASE };
+
+// User preferences (hidden subjects + onboarding)
+export type UserPreferences = {
+    hiddenSubjects: string[];
+    onboardingCompleted: boolean;
+};
+
+export async function getUserPreferences(
+    token: string
+): Promise<UserPreferences> {
+    return api<UserPreferences>('/api/users/preferences', { token });
+}
+
+export async function updateUserPreferences(
+    token: string,
+    prefs: Partial<UserPreferences>
+): Promise<{ success: boolean } & Partial<UserPreferences>> {
+    return api<{ success: boolean } & Partial<UserPreferences>>(
+        '/api/users/preferences',
+        {
+            method: 'PUT',
+            token,
+            body: JSON.stringify(prefs),
+        }
+    );
+}

@@ -17,6 +17,8 @@ import {
     getVapidPublicKey,
     subscribeToPushNotifications as apiSubscribeToPush,
     updateNotificationSettings,
+    getUserPreferences,
+    updateUserPreferences,
 } from '../api';
 import {
     isServiceWorkerSupported,
@@ -621,19 +623,54 @@ export default function Dashboard({
         };
     }, [token]);
 
-    // Check if user should see onboarding
+    // Preferences bootstrap: fetch server preferences to seed localStorage hiddenSubjects and onboarding
     useEffect(() => {
-        const hasSeenOnboarding = localStorage.getItem(
-            'periodix-onboarding-completed'
-        );
-        if (!hasSeenOnboarding) {
-            // Delay showing onboarding slightly to let the dashboard load
-            const timer = setTimeout(() => {
-                setIsOnboardingOpen(true);
-            }, 1000);
-            return () => clearTimeout(timer);
-        }
-    }, []);
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        getUserPreferences(token)
+            .then((prefs) => {
+                if (cancelled) return;
+                // Seed hidden subjects into localStorage and notify timetable
+                if (Array.isArray(prefs.hiddenSubjects)) {
+                    try {
+                        localStorage.setItem(
+                            'periodix:hiddenSubjects:self',
+                            JSON.stringify(prefs.hiddenSubjects)
+                        );
+                        // trigger re-filter if Timetable is mounted
+                        window.dispatchEvent(
+                            new Event('periodix:hiddenSubjects:changed')
+                        );
+                    } catch {
+                        // ignore storage errors
+                    }
+                }
+                // Control onboarding: show only if not completed on server and not marked locally
+                const localDone = localStorage.getItem(
+                    'periodix-onboarding-completed'
+                );
+                if (!prefs.onboardingCompleted && !localDone) {
+                    timer = setTimeout(() => {
+                        setIsOnboardingOpen(true);
+                    }, 1000);
+                }
+            })
+            .catch(() => {
+                // Fallback to local behavior on failure
+                const hasSeenOnboarding = localStorage.getItem(
+                    'periodix-onboarding-completed'
+                );
+                if (!hasSeenOnboarding) {
+                    timer = setTimeout(() => {
+                        setIsOnboardingOpen(true);
+                    }, 1000);
+                }
+            });
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+        };
+    }, [token]);
 
     useEffect(() => {
         const q = queryText.trim();
@@ -710,7 +747,15 @@ export default function Dashboard({
     }, [queryText, token]);
 
     const handleOnboardingComplete = () => {
-        localStorage.setItem('periodix-onboarding-completed', 'true');
+        try {
+            localStorage.setItem('periodix-onboarding-completed', 'true');
+        } catch {
+            // ignore localStorage errors
+        }
+        // Persist to server (best effort)
+        updateUserPreferences(token, { onboardingCompleted: true }).catch(
+            () => undefined
+        );
         setIsOnboardingOpen(false);
     };
 

@@ -13,6 +13,7 @@ import AdminUserManagement from './settings/AdminUserManagement';
 import UserManagerAccessManagement from './settings/UserManagerAccessManagement';
 import AdminAccessManagement from './settings/AdminAccessManagement';
 import UserManagement from './settings/UserManagement';
+import TimetableSettings from './settings/TimetableSettings';
 
 export default function SettingsModal({
     token,
@@ -204,6 +205,24 @@ export default function SettingsModal({
                                         onUserUpdate={onUserUpdate}
                                     />
                                 </div>
+
+                                {/* Personal Sharing Settings Tab - Available for Users and User-Managers */}
+                                {!user.isAdmin && (
+                                    <div
+                                        className={`${
+                                            activeTab === 'timetable'
+                                                ? 'block'
+                                                : 'hidden'
+                                        }`}
+                                    >
+                                        <TimetableSettings
+                                            token={token}
+                                            isVisible={
+                                                activeTab === 'timetable'
+                                            }
+                                        />
+                                    </div>
+                                )}
 
                                 {/* Personal Sharing Settings Tab - Available for Users and User-Managers */}
                                 {!user.isAdmin && (

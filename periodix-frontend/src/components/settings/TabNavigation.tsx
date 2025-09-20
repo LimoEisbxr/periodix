@@ -31,6 +31,7 @@ export default function TabNavigation({
         if (user.isUserManager) {
             return [
                 { id: 'nickname', label: 'Profile' },
+                { id: 'timetable', label: 'Timetable Settings' },
                 { id: 'sharing', label: 'Personal Sharing Settings' },
                 { id: 'notifications', label: 'Notification Settings' },
                 { id: 'access', label: 'Access' },
@@ -39,6 +40,7 @@ export default function TabNavigation({
         }
         return [
             { id: 'nickname', label: 'Profile' },
+            { id: 'timetable', label: 'Timetable Settings' },
             { id: 'sharing', label: 'Personal Sharing Settings' },
             { id: 'notifications', label: 'Notification Settings' },
         ];
@@ -123,6 +125,21 @@ export default function TabNavigation({
                                                 strokeLinejoin="round"
                                                 strokeWidth="2"
                                                 d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                            />
+                                        </svg>
+                                    )}
+                                    {tab.id === 'timetable' && (
+                                        <svg
+                                            className="w-4 h-4"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth="2"
+                                                d="M8 7V3m8 4V3M4 11h16M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
                                             />
                                         </svg>
                                     )}
@@ -347,6 +364,21 @@ export default function TabNavigation({
                                             strokeLinejoin="round"
                                             strokeWidth="2"
                                             d="M4 19h16M4 15h10M4 11h6M4 7h2"
+                                        />
+                                    </svg>
+                                )}
+                                {tab.id === 'timetable' && (
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth="2"
+                                            d="M8 7V3m8 4V3M4 11h16M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
                                         />
                                     </svg>
                                 )}

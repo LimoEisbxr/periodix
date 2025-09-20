@@ -1372,7 +1372,29 @@ export default function Timetable({
     const internalHeaderPx = 8; // must match DayColumn hideHeader calculation
     const nowY = (nowMin - START_MIN) * SCALE + internalHeaderPx;
 
+    const [hiddenBump, setHiddenBump] = useState(0);
     const lessonsByDay = useMemo(() => {
+        void hiddenBump; // tie memo to hidden changes
+        // bump to re-read hidden subjects when settings change
+        // (updated via custom event listener below)
+        // Load hidden subjects set (user-scoped key; legacy support)
+        let hiddenSubjects = new Set<string>();
+        try {
+            const raw = localStorage.getItem('periodix:hiddenSubjects:self');
+            if (raw) hiddenSubjects = new Set(JSON.parse(raw));
+            else {
+                const legacy = localStorage.getItem('hiddenSubjects');
+                if (legacy) {
+                    localStorage.setItem(
+                        'periodix:hiddenSubjects:self',
+                        legacy
+                    );
+                    hiddenSubjects = new Set(JSON.parse(legacy));
+                }
+            }
+        } catch {
+            /* ignore */
+        }
         const byDay: Record<string, Lesson[]> = {};
         for (const d of days) byDay[fmtLocal(d)] = [];
         const lessons = Array.isArray(data?.payload)
@@ -1380,7 +1402,9 @@ export default function Timetable({
             : [];
         for (const l of lessons) {
             const dStr = yyyymmddToISO(l.date);
-            if (byDay[dStr])
+            const subj = l.su?.[0]?.name ?? l.activityType ?? '';
+            const shouldHide = subj && hiddenSubjects.has(subj);
+            if (byDay[dStr] && !shouldHide)
                 byDay[dStr].push({
                     ...l,
                     // Only show homework on the day it's due
@@ -1397,10 +1421,29 @@ export default function Timetable({
             byDay[k] = mergeLessons(byDay[k]);
         }
         return byDay;
-    }, [data?.payload, days]);
+    }, [data?.payload, days, hiddenBump]);
+
+    // Force re-render when hidden subjects change via settings
+    useEffect(() => {
+        const handler = () => setHiddenBump((v) => v + 1);
+        window.addEventListener('periodix:hiddenSubjects:changed', handler);
+        return () =>
+            window.removeEventListener(
+                'periodix:hiddenSubjects:changed',
+                handler
+            );
+    }, []);
 
     // Process previous week's data
     const prevWeekLessonsByDay = useMemo(() => {
+        void hiddenBump; // tie memo to hidden changes
+        let hiddenSubjects = new Set<string>();
+        try {
+            const raw = localStorage.getItem('periodix:hiddenSubjects:self');
+            if (raw) hiddenSubjects = new Set(JSON.parse(raw));
+        } catch {
+            /* ignore */
+        }
         const byDay: Record<string, Lesson[]> = {};
         for (const d of prevWeekDays) byDay[fmtLocal(d)] = [];
 
@@ -1411,7 +1454,9 @@ export default function Timetable({
 
         for (const l of lessons) {
             const dStr = yyyymmddToISO(l.date);
-            if (byDay[dStr])
+            const subj = l.su?.[0]?.name ?? l.activityType ?? '';
+            const shouldHide = subj && hiddenSubjects.has(subj);
+            if (byDay[dStr] && !shouldHide)
                 byDay[dStr].push({
                     ...l,
                     homework: (l.homework || []).filter(
@@ -1427,10 +1472,18 @@ export default function Timetable({
             byDay[k] = mergeLessons(byDay[k]);
         }
         return byDay;
-    }, [prevWeekDays, getAdjacentWeekData]);
+    }, [prevWeekDays, getAdjacentWeekData, hiddenBump]);
 
     // Process next week's data
     const nextWeekLessonsByDay = useMemo(() => {
+        void hiddenBump; // tie memo to hidden changes
+        let hiddenSubjects = new Set<string>();
+        try {
+            const raw = localStorage.getItem('periodix:hiddenSubjects:self');
+            if (raw) hiddenSubjects = new Set(JSON.parse(raw));
+        } catch {
+            /* ignore */
+        }
         const byDay: Record<string, Lesson[]> = {};
         for (const d of nextWeekDays) byDay[fmtLocal(d)] = [];
 
@@ -1441,7 +1494,9 @@ export default function Timetable({
 
         for (const l of lessons) {
             const dStr = yyyymmddToISO(l.date);
-            if (byDay[dStr])
+            const subj = l.su?.[0]?.name ?? l.activityType ?? '';
+            const shouldHide = subj && hiddenSubjects.has(subj);
+            if (byDay[dStr] && !shouldHide)
                 byDay[dStr].push({
                     ...l,
                     homework: (l.homework || []).filter(
@@ -1457,7 +1512,7 @@ export default function Timetable({
             byDay[k] = mergeLessons(byDay[k]);
         }
         return byDay;
-    }, [nextWeekDays, getAdjacentWeekData]);
+    }, [nextWeekDays, getAdjacentWeekData, hiddenBump]);
 
     const hasLessons = useMemo(
         () => Object.values(lessonsByDay).some((arr) => arr.length > 0),

@@ -12,6 +12,12 @@ const updateMeSchema = z.object({
     timezone: z.string().trim().min(1).max(100).optional(), // IANA timezone identifier
 });
 
+// User preferences schema
+const preferencesUpdateSchema = z.object({
+    hiddenSubjects: z.array(z.string().min(1)).optional(),
+    onboardingCompleted: z.boolean().optional(),
+});
+
 // Authenticated user search (by username/displayName)
 // NOTE: Consider adding rate limiting in front of this route in production.
 router.get('/search', authMiddleware, async (req, res) => {
@@ -159,16 +165,21 @@ router.patch('/me', authMiddleware, async (req, res) => {
     try {
         const userId = req.user!.id;
         const updateData: any = { displayName: parsed.data.displayName };
-        
+
         // Add timezone to update data if provided
         if (parsed.data.timezone !== undefined) {
             updateData.timezone = parsed.data.timezone;
         }
-        
+
         const user = await prisma.user.update({
             where: { id: userId },
             data: updateData,
-            select: { id: true, username: true, displayName: true, timezone: true },
+            select: {
+                id: true,
+                username: true,
+                displayName: true,
+                timezone: true,
+            },
         });
         res.json({ user });
     } catch (e: any) {
@@ -178,3 +189,60 @@ router.patch('/me', authMiddleware, async (req, res) => {
 });
 
 export default router;
+
+// New routes for per-user preferences (hidden subjects + onboarding)
+router.get('/preferences', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user!.id;
+        // Use any-cast to avoid type drift when Prisma client isn't re-generated
+        const user = await (prisma as any).user.findUnique({
+            where: { id: userId },
+            select: { hiddenSubjects: true, onboardingCompleted: true },
+        });
+        const hiddenSubjects: string[] = Array.isArray(user?.hiddenSubjects)
+            ? user.hiddenSubjects
+            : [];
+        const onboardingCompleted: boolean = Boolean(user?.onboardingCompleted);
+        res.json({ hiddenSubjects, onboardingCompleted });
+    } catch (e: any) {
+        const msg = e?.message || 'Failed to load preferences';
+        res.status(500).json({ error: msg });
+    }
+});
+
+router.put('/preferences', authMiddleware, async (req, res) => {
+    const parsed = preferencesUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    try {
+        const userId = req.user!.id;
+        const data: any = {};
+        if (parsed.data.hiddenSubjects !== undefined) {
+            // De-duplicate and sort for stability
+            const unique = Array.from(new Set(parsed.data.hiddenSubjects)).sort(
+                (a, b) => a.localeCompare(b)
+            );
+            data.hiddenSubjects = unique;
+        }
+        if (parsed.data.onboardingCompleted !== undefined) {
+            data.onboardingCompleted = parsed.data.onboardingCompleted;
+        }
+        if (Object.keys(data).length === 0) {
+            return res.json({ success: true });
+        }
+        const updated = await (prisma as any).user.update({
+            where: { id: userId },
+            data,
+            select: { hiddenSubjects: true, onboardingCompleted: true },
+        });
+        res.json({
+            success: true,
+            hiddenSubjects: updated.hiddenSubjects || [],
+            onboardingCompleted: Boolean(updated.onboardingCompleted),
+        });
+    } catch (e: any) {
+        const msg = e?.message || 'Failed to update preferences';
+        res.status(400).json({ error: msg });
+    }
+});
