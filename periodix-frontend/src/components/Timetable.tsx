@@ -282,6 +282,8 @@ export default function Timetable({
     const totalMinutes = END_MIN - START_MIN;
     const [SCALE, setSCALE] = useState<number>(1);
     const [axisWidth, setAxisWidth] = useState<number>(56); // dynamic; shrinks on mobile
+    // Single-day focus mode: when set to an ISO date string (yyyy-mm-dd) only that day is shown full-width
+    const [focusedDay, setFocusedDay] = useState<string | null>(null);
 
     // Developer mode visibility (controlled by env, query param, or persisted localStorage flag)
     const envDevFlag =
@@ -614,7 +616,7 @@ export default function Timetable({
             setIsAnimating(false);
             setIsPulling(false);
             setPullDistance(0);
-            
+
             // Reset all touch tracking refs to prevent stale gesture state
             // This fixes the issue where swiping doesn't work after PWA close/reopen
             // because the refs retain old touch values from previous session
@@ -623,17 +625,17 @@ export default function Timetable({
             touchStartTime.current = null;
             lastMoveXRef.current = null;
             lastMoveTimeRef.current = null;
-            
+
             // Reset ref mirrors to match state
             isDraggingRef.current = false;
             isAnimatingRef.current = false;
             isPullingRef.current = false;
             pullDistanceRef.current = 0;
-            
+
             // Force gesture re-attachment by incrementing the force flag
             // This ensures gesture handlers are properly re-attached after PWA resume
             // even when the container ref already exists
-            setForceGestureReattach(prev => prev + 1);
+            setForceGestureReattach((prev) => prev + 1);
         }
         const handleVisibility = () => {
             if (document.hidden) {
@@ -648,27 +650,33 @@ export default function Timetable({
         window.addEventListener('pagehide', resetTransientGestureState);
         window.addEventListener('blur', resetTransientGestureState);
         window.addEventListener('focus', resetTransientGestureState);
-        
+
         // Additional PWA-specific events for trackpad-based suspend/resume
         // These events may fire differently when PWA is closed via trackpad gestures
         window.addEventListener('beforeunload', resetTransientGestureState);
         window.addEventListener('unload', resetTransientGestureState);
         document.addEventListener('resume', resetTransientGestureState);
         document.addEventListener('pause', resetTransientGestureState);
-        
+
         // Handle potential input device changes that might affect gesture handling
         window.addEventListener('pointercancel', resetTransientGestureState);
-        
+
         return () => {
             window.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('pagehide', resetTransientGestureState);
             window.removeEventListener('blur', resetTransientGestureState);
             window.removeEventListener('focus', resetTransientGestureState);
-            window.removeEventListener('beforeunload', resetTransientGestureState);
+            window.removeEventListener(
+                'beforeunload',
+                resetTransientGestureState
+            );
             window.removeEventListener('unload', resetTransientGestureState);
             document.removeEventListener('resume', resetTransientGestureState);
             document.removeEventListener('pause', resetTransientGestureState);
-            window.removeEventListener('pointercancel', resetTransientGestureState);
+            window.removeEventListener(
+                'pointercancel',
+                resetTransientGestureState
+            );
         };
     }, []);
     const [gestureAttachAttempts, setGestureAttachAttempts] = useState(0);
@@ -1222,14 +1230,14 @@ export default function Timetable({
             isPullingRef.current = false;
             setPullDistance(0);
             pullDistanceRef.current = 0;
-            
+
             // Reset touch tracking refs to prevent stale gesture state
             touchStartX.current = null;
             touchStartY.current = null;
             touchStartTime.current = null;
             lastMoveXRef.current = null;
             lastMoveTimeRef.current = null;
-            
+
             skipSwipe = false;
         };
         el.addEventListener('touchcancel', handleTouchCancel, {
@@ -1256,17 +1264,27 @@ export default function Timetable({
     useEffect(() => {
         const interval = setInterval(() => {
             // Reset stuck animation state
-            if (!isAnimatingRef.current && Math.abs(translateXRef.current) > 2) {
+            if (
+                !isAnimatingRef.current &&
+                Math.abs(translateXRef.current) > 2
+            ) {
                 setTranslateX(0);
-                if (isDebugRef.current) console.debug('[TT] watchdog: corrected non-zero translateX while not animating');
+                if (isDebugRef.current)
+                    console.debug(
+                        '[TT] watchdog: corrected non-zero translateX while not animating'
+                    );
             }
-            
+
             // Periodically ensure gesture handlers are attached by forcing re-attachment
             // This helps catch cases where PWA suspend/resume doesn't trigger lifecycle events properly
             // Especially important for trackpad-based PWA closing which may bypass normal event flow
-            if (Date.now() % 30000 < 1000) { // Every ~30 seconds (when interval fires close to 30s mark)
-                setForceGestureReattach(prev => prev + 1);
-                if (isDebugRef.current) console.debug('[TT] watchdog: periodic gesture reattachment');
+            if (Date.now() % 30000 < 1000) {
+                // Every ~30 seconds (when interval fires close to 30s mark)
+                setForceGestureReattach((prev) => prev + 1);
+                if (isDebugRef.current)
+                    console.debug(
+                        '[TT] watchdog: periodic gesture reattachment'
+                    );
             }
         }, 1000);
         return () => clearInterval(interval);
@@ -1292,7 +1310,7 @@ export default function Timetable({
                 return 'reset-done';
             },
             forceGestureReattach: () => {
-                setForceGestureReattach(prev => prev + 1);
+                setForceGestureReattach((prev) => prev + 1);
                 return 'gesture-reattach-forced';
             },
         };
@@ -1301,7 +1319,14 @@ export default function Timetable({
                 delete window.PeriodixTTDebug;
             }
         };
-    }, [isDebug, translateX, isAnimating, isDragging, gestureAttachAttempts, forceGestureReattach]);
+    }, [
+        isDebug,
+        translateX,
+        isAnimating,
+        isDragging,
+        gestureAttachAttempts,
+        forceGestureReattach,
+    ]);
 
     // Track current time and compute line position
     const [now, setNow] = useState<Date>(() => new Date());
@@ -1545,7 +1570,6 @@ export default function Timetable({
             <div
                 className="sticky top-0 z-30 bg-gradient-to-b from-white/85 to-white/60 dark:from-slate-900/85 dark:to-slate-900/60 backdrop-blur supports-[backdrop-filter]:backdrop-blur rounded-lg ring-1 ring-black/5 dark:ring-white/10 border border-slate-300/60 dark:border-slate-600/60 shadow-sm mb-2 px-1 sm:px-2"
                 style={{
-                    // Respect right safe area on devices with display cutouts while keeping minimal padding elsewhere
                     paddingRight: 'max(env(safe-area-inset-right), 0.25rem)',
                     paddingLeft: 'max(env(safe-area-inset-left), 0.25rem)',
                 }}
@@ -1553,19 +1577,32 @@ export default function Timetable({
                 <div
                     className="grid"
                     style={{
-                        gridTemplateColumns: `${axisWidth}px repeat(5, 1fr)`,
+                        gridTemplateColumns: `${axisWidth}px repeat(${
+                            focusedDay ? 1 : 5
+                        }, 1fr)`,
                     }}
                 >
-                    <div className="h-10 flex items-center justify-center text-[11px] sm:text-xs font-medium text-slate-500 dark:text-slate-400">
-                        {/* Axis label placeholder */}
+                    <div className="h-10 flex items-center justify-center text-[11px] sm:text-xs font-medium text-slate-500 dark:text-slate-400 select-none">
                         <span>Time</span>
                     </div>
-                    {days.map((d) => {
-                        const isToday = fmtLocal(d) === todayISO;
+                    {(focusedDay
+                        ? days.filter((d) => fmtLocal(d) === focusedDay)
+                        : days
+                    ).map((d) => {
+                        const iso = fmtLocal(d);
+                        const isToday = iso === todayISO;
+                        const isFocused = focusedDay === iso;
                         return (
-                            <div
-                                key={fmtLocal(d)}
-                                className="h-10 flex flex-col items-center justify-center py-1"
+                            <button
+                                key={iso}
+                                type="button"
+                                aria-pressed={isFocused}
+                                onClick={() =>
+                                    setFocusedDay((prev) =>
+                                        prev === iso ? null : iso
+                                    )
+                                }
+                                className="h-10 flex flex-col items-center justify-center py-1 transition-colors rounded-md outline-none hover:bg-slate-200/60 dark:hover:bg-slate-700/40 focus-visible:ring-2 focus-visible:ring-slate-400/60 dark:focus-visible:ring-slate-500/60"
                             >
                                 <div
                                     className={`text-[11px] sm:text-xs font-semibold leading-tight ${
@@ -1590,271 +1627,343 @@ export default function Timetable({
                                         month: '2-digit',
                                     })}
                                 </div>
-                            </div>
+                            </button>
                         );
                     })}
                 </div>
+                {/* Removed extra informational text under the day header in focused mode */}
             </div>
 
             <div className="overflow-hidden w-full">
-                {/* New sliding layout structure */}
-                <div className="flex w-full relative">
-                    {/* Fixed TimeAxis - stays in place */}
-                    <div style={{ width: `${axisWidth}px` }}>
-                        <TimeAxis
-                            START_MIN={START_MIN}
-                            END_MIN={END_MIN}
-                            SCALE={SCALE}
-                            DAY_HEADER_PX={DAY_HEADER_PX}
-                            BOTTOM_PAD_PX={BOTTOM_PAD_PX}
-                            internalHeaderPx={internalHeaderPx}
-                        />
-                    </div>
-
-                    {/* Sliding container for day columns */}
-                    <div className="flex-1 overflow-hidden relative">
-                        {/* Subtle overlay during dragging to indicate interaction */}
-                        {isDragging && (
-                            <div className="absolute inset-0 bg-black/5 dark:bg-white/5 z-20 pointer-events-none transition-opacity duration-150" />
-                        )}
-                        <div
-                            ref={slidingTrackRef}
-                            className="flex"
-                            style={{
-                                transform: `translateX(calc(-33.333% + ${translateX}px))`,
-                                width: '300%',
-                                // We fully manage animation via requestAnimationFrame; disable CSS transitions to prevent conflicts
-                                transition: 'none',
-                                gap: '0.75rem',
-                            }}
-                        >
-                            {/* Previous Week */}
-                            <div
-                                className="flex gap-x-1 sm:gap-x-3 relative"
-                                style={{ width: 'calc(33.333% - 0.5rem)' }}
-                            >
-                                {prevWeekDays.map((d) => {
-                                    const key = fmtLocal(d);
-                                    const items =
-                                        prevWeekLessonsByDay[key] || [];
-                                    return (
-                                        <div key={key} className="flex-1">
-                                            <DayColumn
-                                                day={d}
-                                                keyStr={key}
-                                                items={items}
-                                                START_MIN={START_MIN}
-                                                END_MIN={END_MIN}
-                                                SCALE={SCALE}
-                                                DAY_HEADER_PX={DAY_HEADER_PX}
-                                                BOTTOM_PAD_PX={BOTTOM_PAD_PX}
-                                                lessonColors={lessonColors}
-                                                defaultLessonColors={
-                                                    defaultLessonColors
-                                                }
-                                                onLessonClick={
-                                                    handleLessonClick
-                                                }
-                                                isToday={false}
-                                                gradientOffsets={
-                                                    gradientOffsets
-                                                }
-                                                hideHeader
-                                                isDeveloperMode={isDeveloperMode}
-                                            />
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Current Week */}
-                            <div
-                                className="flex gap-x-1 sm:gap-x-3 relative"
-                                style={{ width: 'calc(33.333% - 0.5rem)' }}
-                            >
-                                {/* Current time line overlay - only show on current week */}
-                                {showNowLine && (
-                                    <div
-                                        aria-hidden
-                                        // Elevated z-index so the time bubble (especially on Mondays near the left time axis) is not obscured.
-                                        // Was z-40; increased to z-50 to sit above the vertical time axis / gutter.
-                                        className="pointer-events-none absolute -translate-y-1/2 z-50"
-                                        style={{
-                                            top: nowY,
-                                            left: '0.25rem',
-                                            right: '0.25rem',
-                                        }}
-                                    >
-                                        <div className="relative w-full">
-                                            {/* Base thin line spanning full width with subtle glow */}
-                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
-
-                                            {/* Seamless thicker overlay for current day with tapered edges */}
+                {/* When focusedDay is active, render simplified single-day layout */}
+                {focusedDay ? (
+                    <div className="flex w-full relative">
+                        <div style={{ width: `${axisWidth}px` }}>
+                            <TimeAxis
+                                START_MIN={START_MIN}
+                                END_MIN={END_MIN}
+                                SCALE={SCALE}
+                                DAY_HEADER_PX={DAY_HEADER_PX}
+                                BOTTOM_PAD_PX={BOTTOM_PAD_PX}
+                                internalHeaderPx={internalHeaderPx}
+                            />
+                        </div>
+                        <div className="flex-1 relative">
+                            {(() => {
+                                const dayObj = days.find(
+                                    (d) => fmtLocal(d) === focusedDay
+                                );
+                                if (!dayObj) return null;
+                                const key = fmtLocal(dayObj);
+                                const items = lessonsByDay[key] || [];
+                                const isToday = key === todayISO;
+                                return (
+                                    <div className="relative">
+                                        {/* Current time line overlay for focused day */}
+                                        {showNowLine && isToday && (
                                             <div
-                                                className="absolute top-0 h-[3px] -translate-y-1/2"
-                                                style={{
-                                                    left: `${
-                                                        (days.findIndex(
-                                                            (d) =>
-                                                                fmtLocal(d) ===
-                                                                todayISO
-                                                        ) /
-                                                            5) *
-                                                        100
-                                                    }%`,
-                                                    width: '20%',
-                                                    background: `linear-gradient(to right, 
-                                                        transparent 0%, 
-                                                        rgba(244,63,94,0.3) 2%, 
-                                                        rgb(244,63,94) 8%, 
-                                                        rgb(217,70,239) 50%, 
-                                                        rgb(236,72,153) 92%, 
-                                                        rgba(236,72,153,0.3) 98%, 
-                                                        transparent 100%
-                                                    )`,
-                                                    filter: 'drop-shadow(0 0 6px rgba(244,63,94,0.6))',
-                                                }}
-                                            />
-
-                                            {/* Additional glow effect for seamless blending */}
-                                            <div
-                                                className="absolute top-0 h-[5px] -translate-y-1/2 opacity-40"
-                                                style={{
-                                                    left: `${
-                                                        (days.findIndex(
-                                                            (d) =>
-                                                                fmtLocal(d) ===
-                                                                todayISO
-                                                        ) /
-                                                            5) *
-                                                        100
-                                                    }%`,
-                                                    width: '20%',
-                                                    background: `linear-gradient(to right, 
-                                                        transparent 0%, 
-                                                        rgba(244,63,94,0.1) 5%, 
-                                                        rgba(244,63,94,0.6) 50%, 
-                                                        rgba(244,63,94,0.1) 95%, 
-                                                        transparent 100%
-                                                    )`,
-                                                    filter: 'blur(1px)',
-                                                }}
-                                            />
-
-                                            {/* Time indicator dot and label positioned for current day */}
-                                            <div
-                                                className="absolute top-1/2 -translate-y-1/2"
-                                                style={{
-                                                    left: `${
-                                                        (days.findIndex(
-                                                            (d) =>
-                                                                fmtLocal(d) ===
-                                                                todayISO
-                                                        ) /
-                                                            5) *
-                                                        100
-                                                    }%`,
-                                                }}
+                                                aria-hidden
+                                                className="pointer-events-none absolute -translate-y-1/2 z-50 left-0 right-0"
+                                                style={{ top: nowY }}
                                             >
-                                                <div className="absolute -top-[15px] -translate-x-1/2 whitespace-nowrap">
-                                                    <span
-                                                        className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
-                                                        style={{
-                                                            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
-                                                        }}
-                                                    >
-                                                        {fmtHM(nowMin)}
-                                                    </span>
+                                                <div className="relative w-full">
+                                                    <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                                    <div className="absolute top-0 h-[3px] -translate-y-1/2 left-0 right-0 bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500" />
+                                                    <div className="absolute -top-[15px] left-2">
+                                                        <span
+                                                            className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
+                                                            style={{
+                                                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                                            }}
+                                                        >
+                                                            {fmtHM(nowMin)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <DayColumn
+                                            day={dayObj}
+                                            keyStr={key}
+                                            items={items}
+                                            START_MIN={START_MIN}
+                                            END_MIN={END_MIN}
+                                            SCALE={SCALE}
+                                            DAY_HEADER_PX={DAY_HEADER_PX}
+                                            BOTTOM_PAD_PX={BOTTOM_PAD_PX}
+                                            lessonColors={lessonColors}
+                                            defaultLessonColors={
+                                                defaultLessonColors
+                                            }
+                                            onLessonClick={handleLessonClick}
+                                            isToday={isToday}
+                                            gradientOffsets={gradientOffsets}
+                                            hideHeader
+                                            isDeveloperMode={isDeveloperMode}
+                                        />
+                                        {!items.length && (
+                                            <div className="absolute inset-0 flex items-center justify-center z-40">
+                                                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
+                                                    No lessons for this day.
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex w-full relative">
+                        {/* Fixed TimeAxis - stays in place */}
+                        <div style={{ width: `${axisWidth}px` }}>
+                            <TimeAxis
+                                START_MIN={START_MIN}
+                                END_MIN={END_MIN}
+                                SCALE={SCALE}
+                                DAY_HEADER_PX={DAY_HEADER_PX}
+                                BOTTOM_PAD_PX={BOTTOM_PAD_PX}
+                                internalHeaderPx={internalHeaderPx}
+                            />
+                        </div>
+                        {/* Original sliding container for week navigation */}
+                        <div className="flex-1 overflow-hidden relative">
+                            {isDragging && (
+                                <div className="absolute inset-0 bg-black/5 dark:bg-white/5 z-20 pointer-events-none transition-opacity duration-150" />
+                            )}
+                            <div
+                                ref={slidingTrackRef}
+                                className="flex"
+                                style={{
+                                    transform: `translateX(calc(-33.333% + ${translateX}px))`,
+                                    width: '300%',
+                                    transition: 'none',
+                                    gap: '0.75rem',
+                                }}
+                            >
+                                {/* Previous Week */}
+                                <div
+                                    className="flex gap-x-1 sm:gap-x-3 relative"
+                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                >
+                                    {prevWeekDays.map((d) => {
+                                        const key = fmtLocal(d);
+                                        const items =
+                                            prevWeekLessonsByDay[key] || [];
+                                        return (
+                                            <div key={key} className="flex-1">
+                                                <DayColumn
+                                                    day={d}
+                                                    keyStr={key}
+                                                    items={items}
+                                                    START_MIN={START_MIN}
+                                                    END_MIN={END_MIN}
+                                                    SCALE={SCALE}
+                                                    DAY_HEADER_PX={
+                                                        DAY_HEADER_PX
+                                                    }
+                                                    BOTTOM_PAD_PX={
+                                                        BOTTOM_PAD_PX
+                                                    }
+                                                    lessonColors={lessonColors}
+                                                    defaultLessonColors={
+                                                        defaultLessonColors
+                                                    }
+                                                    onLessonClick={
+                                                        handleLessonClick
+                                                    }
+                                                    isToday={false}
+                                                    gradientOffsets={
+                                                        gradientOffsets
+                                                    }
+                                                    hideHeader
+                                                    isDeveloperMode={
+                                                        isDeveloperMode
+                                                    }
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {/* Current Week */}
+                                <div
+                                    className="flex gap-x-1 sm:gap-x-3 relative"
+                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                >
+                                    {showNowLine && (
+                                        <div
+                                            aria-hidden
+                                            className="pointer-events-none absolute -translate-y-1/2 z-50"
+                                            style={{
+                                                top: nowY,
+                                                left: '0.25rem',
+                                                right: '0.25rem',
+                                            }}
+                                        >
+                                            <div className="relative w-full">
+                                                <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                                <div
+                                                    className="absolute top-0 h-[3px] -translate-y-1/2"
+                                                    style={{
+                                                        left: `${
+                                                            (days.findIndex(
+                                                                (d) =>
+                                                                    fmtLocal(
+                                                                        d
+                                                                    ) ===
+                                                                    todayISO
+                                                            ) /
+                                                                5) *
+                                                            100
+                                                        }%`,
+                                                        width: '20%',
+                                                        background: `linear-gradient(to right, transparent 0%, rgba(244,63,94,0.3) 2%, rgb(244,63,94) 8%, rgb(217,70,239) 50%, rgb(236,72,153) 92%, rgba(236,72,153,0.3) 98%, transparent 100%)`,
+                                                        filter: 'drop-shadow(0 0 6px rgba(244,63,94,0.6))',
+                                                    }}
+                                                />
+                                                <div
+                                                    className="absolute top-0 h-[5px] -translate-y-1/2 opacity-40"
+                                                    style={{
+                                                        left: `${
+                                                            (days.findIndex(
+                                                                (d) =>
+                                                                    fmtLocal(
+                                                                        d
+                                                                    ) ===
+                                                                    todayISO
+                                                            ) /
+                                                                5) *
+                                                            100
+                                                        }%`,
+                                                        width: '20%',
+                                                        background: `linear-gradient(to right, transparent 0%, rgba(244,63,94,0.1) 5%, rgba(244,63,94,0.6) 50%, rgba(244,63,94,0.1) 95%, transparent 100%)`,
+                                                        filter: 'blur(1px)',
+                                                    }}
+                                                />
+                                                <div
+                                                    className="absolute top-1/2 -translate-y-1/2"
+                                                    style={{
+                                                        left: `${
+                                                            (days.findIndex(
+                                                                (d) =>
+                                                                    fmtLocal(
+                                                                        d
+                                                                    ) ===
+                                                                    todayISO
+                                                            ) /
+                                                                5) *
+                                                            100
+                                                        }%`,
+                                                    }}
+                                                >
+                                                    <div className="absolute -top-[15px] -translate-x-1/2 whitespace-nowrap">
+                                                        <span
+                                                            className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
+                                                            style={{
+                                                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                                            }}
+                                                        >
+                                                            {fmtHM(nowMin)}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-
-                                {days.map((d) => {
-                                    const key = fmtLocal(d);
-                                    const items = lessonsByDay[key] || [];
-                                    const isToday = key === todayISO;
-                                    return (
-                                        <div key={key} className="flex-1">
-                                            <DayColumn
-                                                day={d}
-                                                keyStr={key}
-                                                items={items}
-                                                START_MIN={START_MIN}
-                                                END_MIN={END_MIN}
-                                                SCALE={SCALE}
-                                                DAY_HEADER_PX={DAY_HEADER_PX}
-                                                BOTTOM_PAD_PX={BOTTOM_PAD_PX}
-                                                lessonColors={lessonColors}
-                                                defaultLessonColors={
-                                                    defaultLessonColors
-                                                }
-                                                onLessonClick={
-                                                    handleLessonClick
-                                                }
-                                                isToday={isToday}
-                                                gradientOffsets={
-                                                    gradientOffsets
-                                                }
-                                                hideHeader
-                                                isDeveloperMode={isDeveloperMode}
-                                            />
+                                    )}
+                                    {days.map((d) => {
+                                        const key = fmtLocal(d);
+                                        const items = lessonsByDay[key] || [];
+                                        const isToday = key === todayISO;
+                                        return (
+                                            <div key={key} className="flex-1">
+                                                <DayColumn
+                                                    day={d}
+                                                    keyStr={key}
+                                                    items={items}
+                                                    START_MIN={START_MIN}
+                                                    END_MIN={END_MIN}
+                                                    SCALE={SCALE}
+                                                    DAY_HEADER_PX={
+                                                        DAY_HEADER_PX
+                                                    }
+                                                    BOTTOM_PAD_PX={
+                                                        BOTTOM_PAD_PX
+                                                    }
+                                                    lessonColors={lessonColors}
+                                                    defaultLessonColors={
+                                                        defaultLessonColors
+                                                    }
+                                                    onLessonClick={
+                                                        handleLessonClick
+                                                    }
+                                                    isToday={isToday}
+                                                    gradientOffsets={
+                                                        gradientOffsets
+                                                    }
+                                                    hideHeader
+                                                    isDeveloperMode={
+                                                        isDeveloperMode
+                                                    }
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                    {!hasLessons && (
+                                        <div className="absolute inset-0 flex items-center justify-center z-50">
+                                            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
+                                                No timetable for this week.
+                                            </div>
                                         </div>
-                                    );
-                                })}
-
-                                {/* Empty state overlay when no lessons for current week */}
-                                {!hasLessons && (
-                                    <div className="absolute inset-0 flex items-center justify-center z-50">
-                                        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
-                                            No timetable for this week.
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Next Week */}
-                            <div
-                                className="flex gap-x-1 sm:gap-x-3 relative"
-                                style={{ width: 'calc(33.333% - 0.5rem)' }}
-                            >
-                                {nextWeekDays.map((d) => {
-                                    const key = fmtLocal(d);
-                                    const items =
-                                        nextWeekLessonsByDay[key] || [];
-                                    return (
-                                        <div key={key} className="flex-1">
-                                            <DayColumn
-                                                day={d}
-                                                keyStr={key}
-                                                items={items}
-                                                START_MIN={START_MIN}
-                                                END_MIN={END_MIN}
-                                                SCALE={SCALE}
-                                                DAY_HEADER_PX={DAY_HEADER_PX}
-                                                BOTTOM_PAD_PX={BOTTOM_PAD_PX}
-                                                lessonColors={lessonColors}
-                                                defaultLessonColors={
-                                                    defaultLessonColors
-                                                }
-                                                onLessonClick={
-                                                    handleLessonClick
-                                                }
-                                                isToday={false}
-                                                gradientOffsets={
-                                                    gradientOffsets
-                                                }
-                                                hideHeader
-                                                isDeveloperMode={isDeveloperMode}
-                                            />
-                                        </div>
-                                    );
-                                })}
+                                    )}
+                                </div>
+                                {/* Next Week */}
+                                <div
+                                    className="flex gap-x-1 sm:gap-x-3 relative"
+                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                >
+                                    {nextWeekDays.map((d) => {
+                                        const key = fmtLocal(d);
+                                        const items =
+                                            nextWeekLessonsByDay[key] || [];
+                                        return (
+                                            <div key={key} className="flex-1">
+                                                <DayColumn
+                                                    day={d}
+                                                    keyStr={key}
+                                                    items={items}
+                                                    START_MIN={START_MIN}
+                                                    END_MIN={END_MIN}
+                                                    SCALE={SCALE}
+                                                    DAY_HEADER_PX={
+                                                        DAY_HEADER_PX
+                                                    }
+                                                    BOTTOM_PAD_PX={
+                                                        BOTTOM_PAD_PX
+                                                    }
+                                                    lessonColors={lessonColors}
+                                                    defaultLessonColors={
+                                                        defaultLessonColors
+                                                    }
+                                                    onLessonClick={
+                                                        handleLessonClick
+                                                    }
+                                                    isToday={false}
+                                                    gradientOffsets={
+                                                        gradientOffsets
+                                                    }
+                                                    hideHeader
+                                                    isDeveloperMode={
+                                                        isDeveloperMode
+                                                    }
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
 
             <LessonModal

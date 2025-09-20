@@ -35,10 +35,11 @@ interface UseLessonColorsReturn {
  */
 export function useLessonColors({
     token,
-    viewingUserId
+    viewingUserId,
 }: UseLessonColorsOptions): UseLessonColorsReturn {
     const [lessonColors, setLessonColors] = useState<LessonColors>({});
-    const [defaultLessonColors, setDefaultLessonColors] = useState<LessonColors>({});
+    const [defaultLessonColors, setDefaultLessonColors] =
+        useState<LessonColors>({});
     const [lessonOffsets, setLessonOffsets] = useState<LessonOffsets>({});
     const [colorError, setColorError] = useState<string | null>(null);
 
@@ -49,7 +50,7 @@ export function useLessonColors({
     const loadLessonColors = useCallback(async () => {
         try {
             setColorError(null);
-            
+
             // Load user-specific colors
             const userColors = await getLessonColors(token);
             if (userColors.colors) {
@@ -65,63 +66,80 @@ export function useLessonColors({
                 setDefaultLessonColors(defaults);
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to load lesson colors';
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to load lesson colors';
             setColorError(message);
             console.error('Failed to load lesson colors:', error);
         }
     }, [token, viewingUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const updateLessonColor = useCallback(async (
-        lessonName: string,
-        color: string,
-        offset: number = 0.5
-    ) => {
-        try {
-            setColorError(null);
-            
-            await setLessonColor(token, lessonName, color, viewingUserId, offset);
-            
-            // Update local state
-            setLessonColors(prev => ({
-                ...prev,
-                [lessonName]: color
-            }));
-            
-            setLessonOffsets(prev => ({
-                ...prev,
-                [lessonName]: offset
-            }));
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to update lesson color';
-            setColorError(message);
-            throw error; // Re-throw so caller can handle if needed
-        }
-    }, [token, viewingUserId]);
+    const updateLessonColor = useCallback(
+        async (lessonName: string, color: string, offset: number = 0.5) => {
+            try {
+                setColorError(null);
 
-    const removeLessonColorSetting = useCallback(async (lessonName: string) => {
-        try {
-            setColorError(null);
-            
-            await removeLessonColor(token, lessonName, viewingUserId);
-            
-            // Update local state
-            setLessonColors(prev => {
-                const next = { ...prev };
-                delete next[lessonName];
-                return next;
-            });
-            
-            setLessonOffsets(prev => {
-                const next = { ...prev };
-                delete next[lessonName];
-                return next;
-            });
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to remove lesson color';
-            setColorError(message);
-            throw error; // Re-throw so caller can handle if needed
-        }
-    }, [token, viewingUserId]);
+                await setLessonColor(
+                    token,
+                    lessonName,
+                    color,
+                    viewingUserId,
+                    offset
+                );
+
+                // Update local state
+                setLessonColors((prev) => ({
+                    ...prev,
+                    [lessonName]: color,
+                }));
+
+                setLessonOffsets((prev) => ({
+                    ...prev,
+                    [lessonName]: offset,
+                }));
+            } catch (error) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to update lesson color';
+                setColorError(message);
+                throw error; // Re-throw so caller can handle if needed
+            }
+        },
+        [token, viewingUserId]
+    );
+
+    const removeLessonColorSetting = useCallback(
+        async (lessonName: string) => {
+            try {
+                setColorError(null);
+
+                await removeLessonColor(token, lessonName, viewingUserId);
+
+                // Update local state
+                setLessonColors((prev) => {
+                    const next = { ...prev };
+                    delete next[lessonName];
+                    return next;
+                });
+
+                setLessonOffsets((prev) => {
+                    const next = { ...prev };
+                    delete next[lessonName];
+                    return next;
+                });
+            } catch (error) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to remove lesson color';
+                setColorError(message);
+                throw error; // Re-throw so caller can handle if needed
+            }
+        },
+        [token, viewingUserId]
+    );
 
     // Load lesson colors on mount and when dependencies change
     useEffect(() => {
