@@ -4,15 +4,6 @@ import webpush from 'web-push';
 
 // Lesson merging utilities for notifications
 /**
- * Convert Untis HHmm format to minutes since midnight
- */
-function untisToMinutes(hhmm: number): number {
-    const hours = Math.floor(hhmm / 100);
-    const minutes = hhmm % 100;
-    return hours * 60 + minutes;
-}
-
-/**
  * Check if two lessons can be merged for notification purposes
  * Based on the frontend merging logic but adapted for backend lesson format
  */
@@ -22,24 +13,24 @@ function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
     const subject2 = lesson2.su?.[0]?.name ?? lesson2.activityType ?? '';
     if (subject1 !== subject2) return false;
 
-    // Check if teachers match
-    const teacher1 = lesson1.te
-        ?.map((t: any) => t.name)
+    // Check if teachers match - use nullish coalescing to ensure arrays
+    const teacher1 = (lesson1.te ?? [])
+        .map((t: any) => t.name)
         .sort()
         .join(',');
-    const teacher2 = lesson2.te
-        ?.map((t: any) => t.name)
+    const teacher2 = (lesson2.te ?? [])
+        .map((t: any) => t.name)
         .sort()
         .join(',');
     if (teacher1 !== teacher2) return false;
 
-    // Check if rooms match
-    const room1 = lesson1.ro
-        ?.map((r: any) => r.name)
+    // Check if rooms match - use nullish coalescing to ensure arrays
+    const room1 = (lesson1.ro ?? [])
+        .map((r: any) => r.name)
         .sort()
         .join(',');
-    const room2 = lesson2.ro
-        ?.map((r: any) => r.name)
+    const room2 = (lesson2.ro ?? [])
+        .map((r: any) => r.name)
         .sort()
         .join(',');
     if (room1 !== room2) return false;
@@ -51,8 +42,10 @@ function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
     if (lesson1.date !== lesson2.date) return false;
 
     // Check if lessons are consecutive (5 minutes or less break)
-    const lesson1EndMin = untisToMinutes(lesson1.endTime);
-    const lesson2StartMin = untisToMinutes(lesson2.startTime);
+    // Helper to convert Untis HHmm format to minutes since midnight
+    const toMinutes = (hhmm: number) => Math.floor(hhmm / 100) * 60 + (hhmm % 100);
+    const lesson1EndMin = toMinutes(lesson1.endTime);
+    const lesson2StartMin = toMinutes(lesson2.startTime);
     const breakMinutes = lesson2StartMin - lesson1EndMin;
 
     // Merge if break is 5 minutes or less (including negative for overlapping)
@@ -66,10 +59,10 @@ function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
 function groupLessonsForNotifications(lessons: any[]): any[][] {
     if (lessons.length <= 1) return lessons.map(l => [l]);
 
-    // Sort lessons by date and start time
+    // Sort lessons by date and start time - ensure numeric comparison
     const sortedLessons = [...lessons].sort((a, b) => {
-        if (a.date !== b.date) return a.date - b.date;
-        return a.startTime - b.startTime;
+        if (Number(a.date) !== Number(b.date)) return Number(a.date) - Number(b.date);
+        return Number(a.startTime) - Number(b.startTime);
     });
 
     const groups: any[][] = [];
@@ -93,6 +86,16 @@ function groupLessonsForNotifications(lessons: any[]): any[][] {
     groups.push(currentGroup);
 
     return groups;
+}
+
+/**
+ * Create a canonical signature for dedupe keys when IDs are missing
+ */
+function createCanonicalSignature(lesson: any): string {
+    const subject = lesson.su?.[0]?.name ?? lesson.activityType ?? 'unknown';
+    const teachers = (lesson.te ?? []).map((t: any) => t.name).sort().join(',') || 'no-teacher';
+    const rooms = (lesson.ro ?? []).map((r: any) => r.name).sort().join(',') || 'no-room';
+    return `${subject}:${teachers}:${rooms}`;
 }
 
 // Initialize web-push with VAPID keys
@@ -737,7 +740,7 @@ export class NotificationService {
                             const date = formatYmd(firstLesson.date);
                             
                             // Create a dedupe key based on the merged lesson group
-                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? 'unknown').sort().join(',');
+                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
                             const dedupeKey = [
                                 'cancelled_merged',
                                 user.id,
@@ -842,7 +845,7 @@ export class NotificationService {
                             const irregularFlags = Array.from(allIrregularFlags).sort();
                             
                             // Create a dedupe key based on the merged lesson group
-                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? 'unknown').sort().join(',');
+                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
                             const dedupeKey = [
                                 'irregular_merged',
                                 user.id,
@@ -1013,7 +1016,7 @@ export class NotificationService {
                         const endTime = formatHm(lastLesson.endTime);
                         
                         // Create a dedupe key based on the merged lesson group
-                        const groupIds = group.map(l => l?.id ?? l?.lessonId ?? 'unknown').sort().join(',');
+                        const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
                         const dedupeKey = [
                             'upcoming_merged',
                             user.id,
@@ -1038,11 +1041,11 @@ export class NotificationService {
                             /* ignore errors */
                         }
 
-                        const room = firstLesson.ro
-                            ?.map((r: any) => r.name)
+                        const room = (firstLesson.ro ?? [])
+                            .map((r: any) => r.name)
                             .join(', ');
-                        const teacher = firstLesson.te
-                            ?.map((t: any) => t.name)
+                        const teacher = (firstLesson.te ?? [])
+                            .map((t: any) => t.name)
                             .join(', ');
                         
                         // Check for irregular changes across the group
@@ -1052,27 +1055,27 @@ export class NotificationService {
                             lesson.ro?.some((r: any) => r.orgname)
                         );
 
-                        const irregularParts: string[] = [];
+                        const irregularPartsSet: Set<string> = new Set();
                         if (hasIrregular) {
-                            // Collect all irregular flags from the group
-                            const allIrregularFlags = new Set<string>();
+                            // Collect all irregular flags from the group, deduplicated
                             for (const lesson of group) {
                                 if (lesson.te?.some((t: any) => t.orgname)) {
                                     const changes = lesson.te
                                         .filter((t: any) => t.orgname)
                                         .map((t: any) => `${t.orgname} → ${t.name}`)
                                         .join(', ');
-                                    if (changes) irregularParts.push(`Teacher: ${changes}`);
+                                    if (changes) irregularPartsSet.add(`Teacher: ${changes}`);
                                 }
                                 if (lesson.ro?.some((r: any) => r.orgname)) {
                                     const changes = lesson.ro
                                         .filter((r: any) => r.orgname)
                                         .map((r: any) => `${r.orgname} → ${r.name}`)
                                         .join(', ');
-                                    if (changes) irregularParts.push(`Room: ${changes}`);
+                                    if (changes) irregularPartsSet.add(`Room: ${changes}`);
                                 }
                             }
                         }
+                        const irregularParts: string[] = Array.from(irregularPartsSet);
 
                         const title = 'Upcoming lessons in 5 minutes';
                         const details = [
