@@ -2,6 +2,102 @@ import { prisma } from '../store/prisma.js';
 import { getOrFetchTimetableRange } from './untisService.js';
 import webpush from 'web-push';
 
+// Lesson merging utilities for notifications
+/**
+ * Check if two lessons can be merged for notification purposes
+ * Based on the frontend merging logic but adapted for backend lesson format
+ */
+function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
+    // Check if subjects match
+    const subject1 = lesson1.su?.[0]?.name ?? lesson1.activityType ?? '';
+    const subject2 = lesson2.su?.[0]?.name ?? lesson2.activityType ?? '';
+    if (subject1 !== subject2) return false;
+
+    // Check if teachers match - use nullish coalescing to ensure arrays
+    const teacher1 = (lesson1.te ?? [])
+        .map((t: any) => t.name)
+        .sort()
+        .join(',');
+    const teacher2 = (lesson2.te ?? [])
+        .map((t: any) => t.name)
+        .sort()
+        .join(',');
+    if (teacher1 !== teacher2) return false;
+
+    // Check if rooms match - use nullish coalescing to ensure arrays
+    const room1 = (lesson1.ro ?? [])
+        .map((r: any) => r.name)
+        .sort()
+        .join(',');
+    const room2 = (lesson2.ro ?? [])
+        .map((r: any) => r.name)
+        .sort()
+        .join(',');
+    if (room1 !== room2) return false;
+
+    // Check if lesson codes match (both cancelled, both irregular, etc.)
+    if (lesson1.code !== lesson2.code) return false;
+
+    // Must be same date
+    if (lesson1.date !== lesson2.date) return false;
+
+    // Check if lessons are consecutive (5 minutes or less break)
+    // Helper to convert Untis HHmm format to minutes since midnight
+    const toMinutes = (hhmm: number) => Math.floor(hhmm / 100) * 60 + (hhmm % 100);
+    const lesson1EndMin = toMinutes(lesson1.endTime);
+    const lesson2StartMin = toMinutes(lesson2.startTime);
+    const breakMinutes = lesson2StartMin - lesson1EndMin;
+
+    // Merge if break is 5 minutes or less (including negative for overlapping)
+    return breakMinutes <= 5;
+}
+
+/**
+ * Group consecutive lessons that can be merged for notification purposes
+ * Returns arrays of lessons that should generate single notifications
+ */
+function groupLessonsForNotifications(lessons: any[]): any[][] {
+    if (lessons.length <= 1) return lessons.map(l => [l]);
+
+    // Sort lessons by date and start time - ensure numeric comparison
+    const sortedLessons = [...lessons].sort((a, b) => {
+        if (Number(a.date) !== Number(b.date)) return Number(a.date) - Number(b.date);
+        return Number(a.startTime) - Number(b.startTime);
+    });
+
+    const groups: any[][] = [];
+    let currentGroup = [sortedLessons[0]];
+
+    for (let i = 1; i < sortedLessons.length; i++) {
+        const currentLesson = currentGroup[currentGroup.length - 1];
+        const nextLesson = sortedLessons[i];
+
+        if (canMergeLessonsForNotifications(currentLesson, nextLesson)) {
+            // Add to current group
+            currentGroup.push(nextLesson);
+        } else {
+            // Start new group
+            groups.push(currentGroup);
+            currentGroup = [nextLesson];
+        }
+    }
+
+    // Add the last group
+    groups.push(currentGroup);
+
+    return groups;
+}
+
+/**
+ * Create a canonical signature for dedupe keys when IDs are missing
+ */
+function createCanonicalSignature(lesson: any): string {
+    const subject = lesson.su?.[0]?.name ?? lesson.activityType ?? 'unknown';
+    const teachers = (lesson.te ?? []).map((t: any) => t.name).sort().join(',') || 'no-teacher';
+    const rooms = (lesson.ro ?? []).map((r: any) => r.name).sort().join(',') || 'no-room';
+    return `${subject}:${teachers}:${rooms}`;
+}
+
 // Initialize web-push with VAPID keys
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
@@ -564,7 +660,8 @@ export class NotificationService {
             };
 
             if (!options?.onlyUpcoming) {
-                for (const lesson of lessons) {
+                // Filter lessons for scope and past/future, then group for notifications
+                const eligibleLessons = lessons.filter(lesson => {
                     // Skip any lesson whose end time is in the past (no notifications for past lessons)
                     const lDate: number | undefined =
                         typeof lesson?.date === 'number'
@@ -585,18 +682,18 @@ export class NotificationService {
                                 typeof lEnd === 'number' &&
                                 lEnd < nowHm))
                     ) {
-                        continue; // past lesson
+                        return false; // past lesson
                     }
-                    // Check cancelled lessons based on user's time scope preference
-                    if (
-                        lesson.code === 'cancelled' &&
-                        user.notificationSettings?.cancelledLessonsEnabled
-                    ) {
-                        const scope =
-                            user.notificationSettings
-                                ?.cancelledLessonsTimeScope || 'day';
-                        let shouldNotify = false;
+                    return true;
+                });
 
+                // Process cancelled lessons
+                if (user.notificationSettings?.cancelledLessonsEnabled) {
+                    const scope = user.notificationSettings?.cancelledLessonsTimeScope || 'day';
+                    const cancelledLessons = eligibleLessons.filter(lesson => {
+                        if (lesson.code !== 'cancelled') return false;
+
+                        let shouldNotify = false;
                         if (scope === 'day') {
                             shouldNotify = lesson.date === todayString;
                         } else if (scope === 'week') {
@@ -604,13 +701,20 @@ export class NotificationService {
                                 lesson.date >= startOfWeekString &&
                                 lesson.date <= endOfWeekString;
                         }
+                        return shouldNotify;
+                    });
 
-                        if (shouldNotify) {
+                    // Group consecutive cancelled lessons for merged notifications
+                    const cancelledGroups = groupLessonsForNotifications(cancelledLessons);
+                    
+                    for (const group of cancelledGroups) {
+                        if (group.length === 1) {
+                            // Single lesson - use existing logic
+                            const lesson = group[0];
                             const subject = lesson.su?.[0]?.name || 'Lesson';
                             const when = `${formatYmd(lesson.date)} ${formatHm(
                                 lesson.startTime
                             )}`.trim();
-                            // Build a stable event fingerprint for this cancelled lesson
                             const dedupeKey = [
                                 'cancelled',
                                 user.id,
@@ -626,22 +730,53 @@ export class NotificationService {
                                 data: lesson,
                                 dedupeKey,
                             });
+                        } else {
+                            // Multiple consecutive lessons - create merged notification
+                            const firstLesson = group[0];
+                            const lastLesson = group[group.length - 1];
+                            const subject = firstLesson.su?.[0]?.name || 'Lesson';
+                            const startTime = formatHm(firstLesson.startTime);
+                            const endTime = formatHm(lastLesson.endTime);
+                            const date = formatYmd(firstLesson.date);
+                            
+                            // Create a dedupe key based on the merged lesson group
+                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
+                            const dedupeKey = [
+                                'cancelled_merged',
+                                user.id,
+                                groupIds,
+                                firstLesson?.date ?? '',
+                                firstLesson?.startTime ?? '',
+                                lastLesson?.endTime ?? '',
+                            ].join(':');
+                            
+                            await this.createNotification({
+                                type: 'cancelled_lesson',
+                                title: 'Lessons Cancelled',
+                                message: `${subject} lessons on ${date} from ${startTime} to ${endTime} have been cancelled`,
+                                userId: user.id,
+                                data: { 
+                                    lessons: group,
+                                    merged: true,
+                                    count: group.length 
+                                },
+                                dedupeKey,
+                            });
                         }
                     }
+                }
 
-                    // Check irregular lessons based on user's time scope preference
-                    if (
-                        (lesson.code === 'irregular' ||
-                            // treat room/teacher orgname markers as irregular too
+                // Process irregular lessons  
+                if (user.notificationSettings?.irregularLessonsEnabled) {
+                    const scope = user.notificationSettings?.irregularLessonsTimeScope || 'day';
+                    const irregularLessons = eligibleLessons.filter(lesson => {
+                        const isIrregular = lesson.code === 'irregular' ||
                             lesson.te?.some((t: any) => t.orgname) ||
-                            lesson.ro?.some((r: any) => r.orgname)) &&
-                        user.notificationSettings?.irregularLessonsEnabled
-                    ) {
-                        const scope =
-                            user.notificationSettings
-                                ?.irregularLessonsTimeScope || 'day';
-                        let shouldNotify = false;
+                            lesson.ro?.some((r: any) => r.orgname);
+                        
+                        if (!isIrregular) return false;
 
+                        let shouldNotify = false;
                         if (scope === 'day') {
                             shouldNotify = lesson.date === todayString;
                         } else if (scope === 'week') {
@@ -649,8 +784,16 @@ export class NotificationService {
                                 lesson.date >= startOfWeekString &&
                                 lesson.date <= endOfWeekString;
                         }
+                        return shouldNotify;
+                    });
 
-                        if (shouldNotify) {
+                    // Group consecutive irregular lessons for merged notifications
+                    const irregularGroups = groupLessonsForNotifications(irregularLessons);
+                    
+                    for (const group of irregularGroups) {
+                        if (group.length === 1) {
+                            // Single lesson - use existing logic
+                            const lesson = group[0];
                             const irregularFlags: string[] = [];
                             if (lesson.code === 'irregular')
                                 irregularFlags.push('schedule');
@@ -680,10 +823,54 @@ export class NotificationService {
                                 data: lesson,
                                 dedupeKey,
                             });
+                        } else {
+                            // Multiple consecutive lessons - create merged notification
+                            const firstLesson = group[0];
+                            const lastLesson = group[group.length - 1];
+                            const subject = firstLesson.su?.[0]?.name || 'Lesson';
+                            const startTime = formatHm(firstLesson.startTime);
+                            const endTime = formatHm(lastLesson.endTime);
+                            const date = formatYmd(firstLesson.date);
+                            
+                            // Collect all irregular flags from the group
+                            const allIrregularFlags = new Set<string>();
+                            for (const lesson of group) {
+                                if (lesson.code === 'irregular')
+                                    allIrregularFlags.add('schedule');
+                                if (lesson.te?.some((t: any) => t.orgname))
+                                    allIrregularFlags.add('teacher');
+                                if (lesson.ro?.some((r: any) => r.orgname))
+                                    allIrregularFlags.add('room');
+                            }
+                            const irregularFlags = Array.from(allIrregularFlags).sort();
+                            
+                            // Create a dedupe key based on the merged lesson group
+                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
+                            const dedupeKey = [
+                                'irregular_merged',
+                                user.id,
+                                groupIds,
+                                firstLesson?.date ?? '',
+                                firstLesson?.startTime ?? '',
+                                lastLesson?.endTime ?? '',
+                                irregularFlags.join('|'),
+                            ].join(':');
+                            
+                            await this.createNotification({
+                                type: 'irregular_lesson',
+                                title: 'Irregular Lessons',
+                                message: `${subject} lessons on ${date} from ${startTime} to ${endTime} have irregular changes (${irregularFlags.join(', ')})`,
+                                userId: user.id,
+                                data: { 
+                                    lessons: group,
+                                    merged: true,
+                                    count: group.length,
+                                    irregularFlags
+                                },
+                                dedupeKey,
+                            });
                         }
                     }
-
-                    // Room/teacher changes are handled under irregular_lesson above
                 }
             }
 
@@ -703,18 +890,35 @@ export class NotificationService {
                 const globalUpcomingEnabled =
                     user.notificationSettings.upcomingLessonsEnabled === true;
 
-                for (const lesson of lessons) {
-                    if (!lesson?.startTime) continue;
-                    // lesson.date can arrive as string or number; normalize
-                    if (Number(lesson.date) !== todayYmd) continue;
-                    if (lesson.code === 'cancelled') continue; // don't remind cancelled
+                // Filter lessons that are eligible for upcoming notifications
+                const eligibleUpcomingLessons = lessons.filter(lesson => {
+                    if (!lesson?.startTime) return false;
+                    if (Number(lesson.date) !== todayYmd) return false;
+                    if (lesson.code === 'cancelled') return false; // don't remind cancelled
 
                     const startMin = toMinutes(lesson.startTime);
                     const diff = startMin - nowMinutes; // whole minutes until start
                     // Allow a tolerance window (3-5 minutes before) to avoid missing due to interval drift.
-                    // If we run slightly early/late we still capture the reminder once.
-                    if (diff <= 5 && diff >= 3) {
-                        // Check if a notification already exists for this upcoming lesson (dedupeKey logic mirrors creation below)
+                    return diff <= 5 && diff >= 3;
+                });
+
+                // Group eligible upcoming lessons for merged notifications
+                const upcomingGroups = groupLessonsForNotifications(eligibleUpcomingLessons);
+
+                for (const group of upcomingGroups) {
+                    // Only send if at least one device opted in for upcoming reminders
+                    const devicePrefs = (user.notificationSettings
+                        ?.devicePreferences || {}) as Record<string, any>;
+                    const anyDeviceEnabled = Object.values(
+                        devicePrefs
+                    ).some((p: any) => p?.upcomingLessonsEnabled);
+                    if (!anyDeviceEnabled && !globalUpcomingEnabled)
+                        continue;
+
+                    if (group.length === 1) {
+                        // Single lesson - use existing logic
+                        const lesson = group[0];
+                        // Check if a notification already exists for this upcoming lesson
                         const dedupeKeyPreview = [
                             'upcoming',
                             user.id,
@@ -738,14 +942,7 @@ export class NotificationService {
                         } catch {
                             /* ignore errors */
                         }
-                        // Only send if at least one device opted in for upcoming reminders
-                        const devicePrefs = (user.notificationSettings
-                            ?.devicePreferences || {}) as Record<string, any>;
-                        const anyDeviceEnabled = Object.values(
-                            devicePrefs
-                        ).some((p: any) => p?.upcomingLessonsEnabled);
-                        if (!anyDeviceEnabled && !globalUpcomingEnabled)
-                            continue;
+
                         // Build shortform info: subject, time, room, teacher
                         const subject = lesson.su?.[0]?.name || 'Lesson';
                         const hh = String(
@@ -808,13 +1005,105 @@ export class NotificationService {
                             },
                             // auto-expire shortly after start time
                             expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
-                            dedupeKey: [
-                                'upcoming',
-                                user.id,
-                                lesson?.id ?? lesson?.lessonId ?? subject,
-                                lesson?.date ?? '',
-                                lesson?.startTime ?? '',
-                            ].join(':'),
+                            dedupeKey: dedupeKeyPreview,
+                        });
+                    } else {
+                        // Multiple consecutive lessons - create merged upcoming notification
+                        const firstLesson = group[0];
+                        const lastLesson = group[group.length - 1];
+                        const subject = firstLesson.su?.[0]?.name || 'Lesson';
+                        const startTime = formatHm(firstLesson.startTime);
+                        const endTime = formatHm(lastLesson.endTime);
+                        
+                        // Create a dedupe key based on the merged lesson group
+                        const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
+                        const dedupeKey = [
+                            'upcoming_merged',
+                            user.id,
+                            groupIds,
+                            firstLesson?.date ?? '',
+                            firstLesson?.startTime ?? '',
+                            lastLesson?.endTime ?? '',
+                        ].join(':');
+                        
+                        try {
+                            const existingUpcoming = await (
+                                prisma as any
+                            ).notification.findFirst({
+                                where: {
+                                    dedupeKey: dedupeKey,
+                                    userId: user.id,
+                                },
+                                select: { id: true },
+                            });
+                            if (existingUpcoming) continue; // already queued/sent
+                        } catch {
+                            /* ignore errors */
+                        }
+
+                        const room = (firstLesson.ro ?? [])
+                            .map((r: any) => r.name)
+                            .join(', ');
+                        const teacher = (firstLesson.te ?? [])
+                            .map((t: any) => t.name)
+                            .join(', ');
+                        
+                        // Check for irregular changes across the group
+                        const hasIrregular = group.some(lesson => 
+                            lesson.code === 'irregular' ||
+                            lesson.te?.some((t: any) => t.orgname) ||
+                            lesson.ro?.some((r: any) => r.orgname)
+                        );
+
+                        const irregularPartsSet: Set<string> = new Set();
+                        if (hasIrregular) {
+                            // Collect all irregular flags from the group, deduplicated
+                            for (const lesson of group) {
+                                if (lesson.te?.some((t: any) => t.orgname)) {
+                                    const changes = lesson.te
+                                        .filter((t: any) => t.orgname)
+                                        .map((t: any) => `${t.orgname} → ${t.name}`)
+                                        .join(', ');
+                                    if (changes) irregularPartsSet.add(`Teacher: ${changes}`);
+                                }
+                                if (lesson.ro?.some((r: any) => r.orgname)) {
+                                    const changes = lesson.ro
+                                        .filter((r: any) => r.orgname)
+                                        .map((r: any) => `${r.orgname} → ${r.name}`)
+                                        .join(', ');
+                                    if (changes) irregularPartsSet.add(`Room: ${changes}`);
+                                }
+                            }
+                        }
+                        const irregularParts: string[] = Array.from(irregularPartsSet);
+
+                        const title = 'Upcoming lessons in 5 minutes';
+                        const details = [
+                            `${subject} from ${startTime} to ${endTime}`,
+                            room ? `Room ${room}` : undefined,
+                            teacher ? `with ${teacher}` : undefined,
+                        ].filter(Boolean);
+                        const message =
+                            details.join(' • ') +
+                            (hasIrregular && irregularParts.length
+                                ? ` — Irregular: ${irregularParts.join(', ')}`
+                                : '');
+
+                        await this.createNotification({
+                            type: 'upcoming_lesson',
+                            title,
+                            message,
+                            userId: user.id,
+                            data: {
+                                lessons: group,
+                                merged: true,
+                                count: group.length,
+                                irregular: hasIrregular,
+                                irregularDetails: irregularParts,
+                            },
+                            // auto-expire shortly after start time of last lesson
+                            expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+                            dedupeKey,
                         });
                     }
                 }
