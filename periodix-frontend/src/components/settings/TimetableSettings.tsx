@@ -17,6 +17,14 @@ function getSubjectKey(l: Lesson): SubjectKey {
     return l.su?.[0]?.name ?? l.activityType ?? '';
 }
 
+function getBadgeText(key: string): string {
+    // Use first token before underscore; cap at 4 characters, uppercase
+    const token = (key || '').split('_')[0] || '';
+    const trimmed = token.trim();
+    if (!trimmed) return '';
+    return (trimmed.length <= 4 ? trimmed : trimmed.slice(0, 4)).toUpperCase();
+}
+
 function loadHiddenSet(): Set<SubjectKey> {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -67,6 +75,7 @@ export default function TimetableSettings({
     const [lastSyncedHidden, setLastSyncedHidden] =
         useState<Set<SubjectKey> | null>(null);
     const [dirty, setDirty] = useState(false);
+    const [retrySeconds, setRetrySeconds] = useState<number | null>(null);
 
     // Load current week's timetable when visible; also fetch server preferences and merge
     useEffect(() => {
@@ -76,39 +85,73 @@ export default function TimetableSettings({
         const end = fmtLocal(addDays(weekStart, 6));
         setLoading(true);
         setError(null);
+        let cancelled = false;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+        // Non-rate-limited parallel loads
         Promise.all([
-            api<TimetableResponse>(
-                `/api/timetable/me?start=${start}&end=${end}`,
-                { token }
-            ),
             getLessonColors(token).catch(() => ({ colors: {}, offsets: {} })),
             getUserPreferences(token).catch(() => null),
-        ])
-            .then(([tt, colors, prefs]) => {
+        ]).then(([colors, prefs]) => {
+            if (cancelled) return;
+            setLessonColors(colors.colors || {});
+            if (prefs && Array.isArray(prefs.hiddenSubjects)) {
+                const serverSet = new Set<SubjectKey>(prefs.hiddenSubjects);
+                setLastSyncedHidden(serverSet);
+                // Merge with local cache but don't mark as dirty
+                const merged = new Set(loadHiddenSet());
+                for (const s of prefs.hiddenSubjects) merged.add(s);
+                setHidden(merged);
+                persistHiddenSet(merged);
+            }
+            setPrefsLoaded(true);
+        });
+
+        const loadTimetable = async () => {
+            try {
+                const tt = await api<TimetableResponse>(
+                    `/api/timetable/me?start=${start}&end=${end}`,
+                    { token }
+                );
+                if (cancelled) return;
                 const payload = Array.isArray(tt?.payload)
                     ? (tt.payload as Lesson[])
                     : [];
                 setLessons(payload);
-                setLessonColors(colors.colors || {});
-                if (prefs && Array.isArray(prefs.hiddenSubjects)) {
-                    const serverSet = new Set<SubjectKey>(prefs.hiddenSubjects);
-                    setLastSyncedHidden(serverSet);
-                    // Merge with local cache but don't mark as dirty to avoid immediate save on open
-                    const merged = new Set(loadHiddenSet());
-                    for (const s of prefs.hiddenSubjects) merged.add(s);
-                    setHidden(merged);
-                    persistHiddenSet(merged); // Keep local in sync for timetable filtering
+                setError(null);
+            } catch (e: unknown) {
+                if (cancelled) return;
+                // Parse potential structured 429 details from api.ts
+                let retryAfterSec: number | null = null;
+                try {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    const parsed = JSON.parse(msg);
+                    if (parsed?.status === 429) {
+                        const ra = Number(parsed?.retryAfter ?? 1);
+                        retryAfterSec = Number.isFinite(ra) && ra > 0 ? ra : 1;
+                    }
+                } catch {
+                    // ignore parse errors
                 }
-            })
-            .catch((e: unknown) => {
-                setError(
-                    e instanceof Error ? e.message : 'Failed to load timetable'
-                );
-            })
-            .finally(() => {
-                setLoading(false);
-                setPrefsLoaded(true);
-            });
+                if (retryAfterSec) {
+                    setRetrySeconds(retryAfterSec);
+                    retryTimer = setTimeout(() => {
+                        setRetrySeconds(null);
+                        loadTimetable();
+                    }, retryAfterSec * 1000);
+                } else {
+                    setError('Failed to load timetable');
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+        loadTimetable();
+
+        return () => {
+            cancelled = true;
+            if (retryTimer) clearTimeout(retryTimer);
+        };
     }, [token, isVisible]);
 
     // Sync with external storage changes (e.g., open in two tabs)
@@ -223,17 +266,23 @@ export default function TimetableSettings({
                 Loading timetable…
             </div>
         );
-    if (error)
-        return (
-            <div className="p-6 text-center text-red-600 dark:text-red-400">
-                {error}
-            </div>
-        );
+    // Do not hard-stop on errors; show banner below and keep UI interactive
 
     const totalHidden = hidden.size;
 
     return (
         <div className="space-y-6">
+            {/* Rate limit / error banners */}
+            {retrySeconds !== null && (
+                <div className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sky-800 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-200">
+                    Rate limit reached. Retrying in {retrySeconds}s…
+                </div>
+            )}
+            {error && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                    {error}
+                </div>
+            )}
             <div className="border-b border-slate-200 dark:border-slate-700 pb-4">
                 <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100">
                     Timetable Settings
@@ -313,7 +362,7 @@ export default function TimetableSettings({
                                     }}
                                     aria-hidden
                                 >
-                                    {key.slice(0, 2).toUpperCase()}
+                                    {getBadgeText(key)}
                                 </div>
                                 <div className="min-w-0">
                                     <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
