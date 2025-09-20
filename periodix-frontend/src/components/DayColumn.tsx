@@ -95,6 +95,49 @@ const DayColumn: FC<DayColumnProps> = ({
         };
     }, []);
 
+    // Collapse-overlap state for narrow columns even when not considered "mobile"
+    // Use hysteresis so layout doesn't flicker near the boundary.
+    // Collapse when narrower than ENTER, expand back to side-by-side when wider than EXIT.
+    const COLLAPSE_ENTER_WIDTH = 195; // px (collapse when below this)
+    const COLLAPSE_EXIT_WIDTH = 200; // px (re-enable side-by-side when above this)
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const [collapseNarrow, setCollapseNarrow] = useState(false);
+    const [measuredWidth, setMeasuredWidth] = useState<number>(0);
+    useLayoutEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        let raf = 0;
+        const compute = () => {
+            try {
+                const w = el.getBoundingClientRect().width;
+                setMeasuredWidth(w);
+                setCollapseNarrow((prev) => {
+                    if (w < COLLAPSE_ENTER_WIDTH) return true;
+                    if (w > COLLAPSE_EXIT_WIDTH) return false;
+                    return prev;
+                });
+            } catch {
+                /* ignore */
+            }
+        };
+        compute();
+        const ro = new ResizeObserver(() => {
+            cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(compute);
+        });
+        try {
+            ro.observe(el);
+        } catch {
+            /* ignore */
+        }
+        window.addEventListener('resize', compute);
+        return () => {
+            cancelAnimationFrame(raf);
+            ro.disconnect();
+            window.removeEventListener('resize', compute);
+        };
+    }, []);
+
     // Helper function to detect if a lesson is merged (contains merge separator)
     const isLessonMerged = (lesson: Lesson): boolean => {
         return (
@@ -191,6 +234,7 @@ const DayColumn: FC<DayColumnProps> = ({
             key={keyStr}
             className="relative px-1.5 first:pl-3 last:pr-3 overflow-hidden rounded-xl"
             style={{ height: containerHeight }}
+            ref={containerRef}
             onClick={(e) => {
                 if (!isDeveloperMode) return;
                 // Ignore clicks on lessons or their children
@@ -211,7 +255,9 @@ const DayColumn: FC<DayColumnProps> = ({
                     >
                         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                Day JSON – {day.toLocaleDateString()} ({items.length} lesson{items.length === 1 ? '' : 's'})
+                                Day JSON – {day.toLocaleDateString()} (
+                                {items.length} lesson
+                                {items.length === 1 ? '' : 's'})
                             </h3>
                             <div className="flex items-center gap-2">
                                 <button
@@ -241,7 +287,7 @@ const DayColumn: FC<DayColumnProps> = ({
                         </div>
                         <div className="flex-1 overflow-auto p-3">
                             <pre className="text-[11px] leading-tight whitespace-pre-wrap break-all font-mono text-slate-800 dark:text-slate-100">
-{JSON.stringify(items, null, 2)}
+                                {JSON.stringify(items, null, 2)}
                             </pre>
                         </div>
                     </div>
@@ -319,13 +365,42 @@ const DayColumn: FC<DayColumnProps> = ({
                 .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
                 .map((b) => {
                     const { l } = b;
-                    // On mobile: collapse overlapping columns by rendering only the rightmost
-                    if (
-                        isMobile &&
-                        b.colCount > 1 &&
-                        b.colIndex !== b.colCount - 1
-                    ) {
-                        return null;
+                    // Determine how many overlapping columns to render
+                    // Desktop wide: render all columns
+                    // Narrow (measured) non-mobile: collapse to 1 (rightmost)
+                    // Mobile: render as many as reasonably fit at a minimum width; otherwise collapse to 1
+                    const GAP_PCT = 1.5; // Reduced gap for better space utilization
+                    const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
+                    const MOBILE_MIN_COLUMN_WIDTH = 140; // px - min per-lesson width on mobile to allow side-by-side
+
+                    let mobileVisibleCols = 1;
+                    if (isMobile && b.colCount > 1) {
+                        const maxFit = Math.max(
+                            1,
+                            Math.floor(
+                                (measuredWidth + gapPx) /
+                                    (MOBILE_MIN_COLUMN_WIDTH + gapPx)
+                            )
+                        );
+                        mobileVisibleCols = Math.min(b.colCount, maxFit);
+                    }
+
+                    const isMobileCollapsed =
+                        isMobile && mobileVisibleCols <= 1;
+
+                    // Hide non-visible columns depending on state
+                    if (b.colCount > 1) {
+                        if (!isMobile && collapseNarrow) {
+                            if (b.colIndex !== b.colCount - 1) return null;
+                        } else if (isMobile) {
+                            if (mobileVisibleCols <= 1) {
+                                if (b.colIndex !== b.colCount - 1) return null;
+                            } else {
+                                // show only the last N columns that fit
+                                const cutoff = b.colCount - mobileVisibleCols;
+                                if (b.colIndex < cutoff) return null;
+                            }
+                        }
                     }
 
                     const cancelled = l.code === 'cancelled';
@@ -368,13 +443,27 @@ const DayColumn: FC<DayColumnProps> = ({
                         ? 'linear-gradient(to right, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.55), rgba(16, 185, 129, 0.6))'
                         : null;
 
-                    const GAP_PCT = 1.5; // Reduced gap for better space utilization
                     let widthPct =
                         (100 - GAP_PCT * (b.colCount - 1)) / b.colCount;
                     let leftPct = b.colIndex * (widthPct + GAP_PCT);
-                    if (isMobile && b.colCount > 1) {
-                        widthPct = 100;
-                        leftPct = 0;
+                    if (b.colCount > 1) {
+                        if (!isMobile && collapseNarrow) {
+                            widthPct = 100;
+                            leftPct = 0;
+                        } else if (isMobile) {
+                            if (mobileVisibleCols <= 1) {
+                                widthPct = 100;
+                                leftPct = 0;
+                            } else {
+                                const visibleCols = mobileVisibleCols;
+                                widthPct =
+                                    (100 - GAP_PCT * (visibleCols - 1)) /
+                                    visibleCols;
+                                const visibleIndex =
+                                    b.colIndex - (b.colCount - visibleCols);
+                                leftPct = visibleIndex * (widthPct + GAP_PCT);
+                            }
+                        }
                     }
 
                     // Pixel-snapped positioning
@@ -424,6 +513,10 @@ const DayColumn: FC<DayColumnProps> = ({
                     // We need space for: subject (~16px) + teacher (~14px) + time (~14px) + margins
                     // Only show time if we have sufficient space for subject + teacher + time (minimum 50px total)
                     const MIN_TIME_DISPLAY_HEIGHT = isMobile ? 56 : 56;
+                    // When the timeframe wraps to multiple lines, require a bit more vertical space for single (non-merged) lessons
+                    const MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE = isMobile
+                        ? 0 // timeframe is not shown on mobile
+                        : 80;
                     // Second threshold for very compact layout: move teacher to same row as subject
                     const MIN_COMPACT_DISPLAY_HEIGHT = isMobile ? 45 : 45;
                     // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
@@ -520,6 +613,74 @@ const DayColumn: FC<DayColumnProps> = ({
                             }`}
                             onClick={() => onLessonClick(l)}
                         >
+                            {/* Indicator for collapsed overlaps (mobile overlay position) */}
+                            {isMobileCollapsed && b.colCount > 1 && (
+                                <>
+                                    {/* subtle left edge bar to suggest stacking */}
+                                    <div
+                                        className="absolute inset-y-0 left-0 w-1 rounded-l-md bg-black/20 dark:bg-white/20 pointer-events-none sm:hidden"
+                                        aria-hidden="true"
+                                        style={{ mixBlendMode: 'soft-light' }}
+                                    />
+                                    {/* stacked-card inner outlines to hint multiple layers */}
+                                    <div
+                                        className="absolute inset-0 pointer-events-none sm:hidden"
+                                        aria-hidden="true"
+                                    >
+                                        <div className="absolute inset-0 rounded-md border border-white/25 dark:border-white/20 opacity-40" />
+                                        <div className="absolute inset-[2px] rounded-[6px] border border-black/25 dark:border-black/40 opacity-35" />
+                                    </div>
+                                    {/* layered tabs glyph (two overlapping rectangles) */}
+                                    <div
+                                        className="absolute left-1 top-1 pointer-events-none sm:hidden"
+                                        title="Multiple overlapping lessons"
+                                    >
+                                        <svg
+                                            width="16"
+                                            height="12"
+                                            viewBox="0 0 16 12"
+                                            fill="none"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                        >
+                                            <rect
+                                                x="4"
+                                                y="3"
+                                                width="11"
+                                                height="7"
+                                                rx="2"
+                                                fill="rgba(0,0,0,0.28)"
+                                            />
+                                            <rect
+                                                x="1"
+                                                y="1"
+                                                width="11"
+                                                height="7"
+                                                rx="2"
+                                                fill="rgba(255,255,255,0.55)"
+                                            />
+                                        </svg>
+                                    </div>
+                                </>
+                            )}
+                            {/* Subtle stacked design when column is narrow (between mobile and side-by-side) */}
+                            {!isMobile && collapseNarrow && b.colCount > 1 && (
+                                <>
+                                    {/* left edge bar to suggest layering */}
+                                    <div
+                                        className="absolute inset-y-0 left-0 w-1 rounded-l-md bg-black/15 dark:bg-white/15 pointer-events-none hidden sm:block"
+                                        aria-hidden="true"
+                                        style={{ mixBlendMode: 'soft-light' }}
+                                    />
+                                    {/* faint inner outlines indicating multiple cards */}
+                                    <div
+                                        className="absolute inset-0 pointer-events-none hidden sm:block"
+                                        aria-hidden="true"
+                                    >
+                                        <div className="absolute inset-0 rounded-md border border-white/20 dark:border-white/15 opacity-30" />
+                                        <div className="absolute inset-[2px] rounded-[6px] border border-black/20 dark:border-black/35 opacity-25" />
+                                    </div>
+                                </>
+                            )}
                             {/* Indicators + room label (desktop) */}
                             <div className="absolute top-1 right-1 hidden sm:flex flex-col items-end gap-1">
                                 {room && (
@@ -548,7 +709,39 @@ const DayColumn: FC<DayColumnProps> = ({
                                         })()}
                                     </div>
                                 )}
-                                <div className="flex gap-1">
+                                <div className="flex gap-1 items-center">
+                                    {/* Desktop/narrow stacked indicator placed with badges when overlaps are collapsed */}
+                                    {collapseNarrow && b.colCount > 1 && (
+                                        <div
+                                            className="w-4 h-4 rounded-[4px] bg-black/25 dark:bg-white/20 flex items-center justify-center shadow-sm ring-1 ring-black/20 dark:ring-white/20"
+                                            title="Multiple overlapping lessons"
+                                        >
+                                            <svg
+                                                width="12"
+                                                height="9"
+                                                viewBox="0 0 16 12"
+                                                fill="none"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                            >
+                                                <rect
+                                                    x="4"
+                                                    y="3"
+                                                    width="11"
+                                                    height="7"
+                                                    rx="2"
+                                                    fill="rgba(0,0,0,0.45)"
+                                                />
+                                                <rect
+                                                    x="1"
+                                                    y="1"
+                                                    width="11"
+                                                    height="7"
+                                                    rx="2"
+                                                    fill="rgba(255,255,255,0.7)"
+                                                />
+                                            </svg>
+                                        </div>
+                                    )}
                                     {l.homework && l.homework.length > 0 && (
                                         <div className="w-3 h-3 bg-amber-400 dark:bg-amber-500 rounded-full flex items-center justify-center shadow-sm">
                                             <svg
@@ -974,6 +1167,16 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 cancelled &&
                                                                 isMerged
                                                             }
+                                                            // Hide time for single lessons when wrapped if not enough height
+                                                            availableSpace={
+                                                                availableSpace
+                                                            }
+                                                            singleLesson={
+                                                                !isMerged
+                                                            }
+                                                            minHeightWhenWrapped={
+                                                                MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE
+                                                            }
                                                         />
                                                     )}
                                             </>
@@ -1024,7 +1227,20 @@ const ResponsiveTimeFrame: FC<{
     startMin: number;
     endMin: number;
     cancelled?: boolean;
-}> = ({ startMin, endMin, cancelled = false }) => {
+    // Available vertical space inside the lesson content area (px)
+    availableSpace?: number;
+    // Whether this is a single (non-merged) lesson
+    singleLesson?: boolean;
+    // Minimum height required to show wrapped time for single lessons
+    minHeightWhenWrapped?: number;
+}> = ({
+    startMin,
+    endMin,
+    cancelled = false,
+    availableSpace,
+    singleLesson = false,
+    minHeightWhenWrapped = 64,
+}) => {
     const ref = useRef<HTMLDivElement | null>(null);
     const [wrapVertical, setWrapVertical] = useState(false);
 
@@ -1127,6 +1343,16 @@ const ResponsiveTimeFrame: FC<{
             meas.remove();
         };
     }, [startMin, endMin]);
+
+    // If time wraps to multiple lines and this is a single lesson with too little height, hide timeframe entirely
+    if (
+        wrapVertical &&
+        singleLesson &&
+        typeof availableSpace === 'number' &&
+        availableSpace < minHeightWhenWrapped
+    ) {
+        return null;
+    }
 
     if (wrapVertical) {
         return (

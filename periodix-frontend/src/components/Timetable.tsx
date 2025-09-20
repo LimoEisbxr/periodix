@@ -353,6 +353,8 @@ export default function Timetable({
         }
     }, [isDeveloperModeEnabled, isDeveloperMode]);
     const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+    const [selectedGroup, setSelectedGroup] = useState<Lesson[] | null>(null);
+    const [selectedIndexInGroup, setSelectedIndexInGroup] = useState<number>(0);
     const [isModalOpen, setIsModalOpen] = useState(false);
     // For privacy: non-admins always use their own (viewer) bucket, never the timetable owner's ID.
     // If we later have the viewer's concrete user id, swap 'self' with it; this prevents leaking offsets across viewed timetables.
@@ -450,6 +452,27 @@ export default function Timetable({
 
     const handleLessonClick = (lesson: Lesson) => {
         setSelectedLesson(lesson);
+        // Build overlapping group for the clicked lesson within its day
+        try {
+            const dayIso = yyyymmddToISO(lesson.date);
+            const dayLessons = lessonsByDay[dayIso] || [];
+            const s0 = untisToMinutes(lesson.startTime);
+            const e0 = untisToMinutes(lesson.endTime);
+            const overlaps = dayLessons.filter((lsn) => {
+                const s1 = untisToMinutes(lsn.startTime);
+                const e1 = untisToMinutes(lsn.endTime);
+                return s1 < e0 && s0 < e1; // overlap
+            });
+            overlaps.sort(
+                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime
+            );
+            const idx = overlaps.findIndex((l) => l.id === lesson.id);
+            setSelectedGroup(overlaps.length > 1 ? overlaps : null);
+            setSelectedIndexInGroup(idx >= 0 ? idx : 0);
+        } catch {
+            setSelectedGroup(null);
+            setSelectedIndexInGroup(0);
+        }
         setIsModalOpen(true);
 
         // Notify onboarding if active (global callback)
@@ -1968,10 +1991,14 @@ export default function Timetable({
 
             <LessonModal
                 lesson={selectedLesson}
+                lessonGroup={selectedGroup ?? undefined}
+                initialIndex={selectedIndexInGroup}
                 isOpen={isModalOpen}
                 onClose={() => {
                     setIsModalOpen(false);
                     setSelectedLesson(null);
+                    setSelectedGroup(null);
+                    setSelectedIndexInGroup(0);
 
                     // Notify onboarding if active (global callback)
                     if (

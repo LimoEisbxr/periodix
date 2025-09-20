@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { Lesson, LessonColors } from '../types';
 import { DevJsonPanel } from './lesson-modal/DevJsonPanel';
@@ -12,6 +12,8 @@ import {
 
 export default function LessonModal({
     lesson,
+    lessonGroup,
+    initialIndex,
     isOpen,
     onClose,
     isDeveloperMode,
@@ -24,6 +26,10 @@ export default function LessonModal({
     isOnboardingActive,
 }: {
     lesson: Lesson | null;
+    // Optional: group of overlapping lessons to present as tabs
+    lessonGroup?: Lesson[];
+    // Optional: which lesson in the group should be active initially
+    initialIndex?: number;
     isOpen: boolean;
     onClose: () => void;
     isDeveloperMode: boolean;
@@ -42,6 +48,30 @@ export default function LessonModal({
     const [animatingOut, setAnimatingOut] = useState(false);
     const [entered, setEntered] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [activeIndex, setActiveIndex] = useState<number>(initialIndex ?? 0);
+    const tabListRef = useRef<HTMLDivElement | null>(null);
+    const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+    // Keep active tab in sync when opened with a different target
+    useEffect(() => {
+        if (isOpen) setActiveIndex(initialIndex ?? 0);
+    }, [isOpen, initialIndex]);
+
+    // Auto-scroll the active tab into view on open and when switching
+    useEffect(() => {
+        if (!isOpen) return;
+        const container = tabListRef.current;
+        const el = tabRefs.current[activeIndex] ?? null;
+        if (!container || !el) return;
+        // Center the active tab within the scroll container
+        const elCenter = el.offsetLeft + el.offsetWidth / 2;
+        const target = Math.max(0, elCenter - container.clientWidth / 2);
+        try {
+            container.scrollTo({ left: target, behavior: 'smooth' });
+        } catch {
+            container.scrollLeft = target;
+        }
+    }, [activeIndex, isOpen]);
 
     const lockScroll = () => {
         document.documentElement.classList.add('modal-open');
@@ -94,7 +124,16 @@ export default function LessonModal({
         return () => document.removeEventListener('keydown', handleEscape);
     }, [shouldRender, handleClose]);
 
-    if (!shouldRender || !lesson) return null;
+    // Determine the current lesson to display (tabbed or single)
+    const lessonsArray =
+        lessonGroup && lessonGroup.length > 0
+            ? lessonGroup
+            : lesson
+            ? [lesson]
+            : [];
+    const currentLesson = lessonsArray[activeIndex] ?? lesson ?? null;
+
+    if (!shouldRender || !currentLesson) return null;
 
     const copyToClipboard = async (text: string) => {
         try {
@@ -106,7 +145,7 @@ export default function LessonModal({
         }
     };
 
-    const cancelled = lesson.code === 'cancelled';
+    const cancelled = currentLesson.code === 'cancelled';
 
     return createPortal(
         <div
@@ -130,11 +169,66 @@ export default function LessonModal({
                 aria-modal="true"
             >
                 <div className="flex items-center justify-between p-6 border-b border-slate-200/60 dark:border-slate-700/60 bg-gradient-to-r from-slate-50/60 to-white/30 dark:from-slate-800/60 dark:to-slate-900/30 rounded-t-2xl">
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-                        {isDeveloperMode
-                            ? 'Lesson Data (Developer Mode)'
-                            : 'Lesson Details'}
-                    </h2>
+                    <div className="flex-1 min-w-0">
+                        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {isDeveloperMode
+                                ? 'Lesson Data (Developer Mode)'
+                                : 'Lesson Details'}
+                        </h2>
+                        {/* Tabs for overlapping lessons */}
+                        {lessonsArray.length > 1 && (
+                            <div className="mt-2 -mb-2">
+                                <div
+                                    role="tablist"
+                                    aria-label="Overlapping lessons"
+                                    className="flex items-end gap-2 overflow-x-auto no-scrollbar pr-1 border-b border-slate-200/60 dark:border-slate-700/60"
+                                    ref={tabListRef}
+                                >
+                                    {lessonsArray.map((lsn, idx) => {
+                                        const subj =
+                                            lsn.su?.[0]?.name ??
+                                            lsn.activityType ??
+                                            '—';
+                                        const room =
+                                            lsn.ro
+                                                ?.map((r) => r.name)
+                                                .join(', ') || '';
+                                        const label = room
+                                            ? `${subj} · ${room}`
+                                            : subj;
+                                        const isActive = idx === activeIndex;
+                                        return (
+                                            <button
+                                                key={`${lsn.id}-${idx}`}
+                                                id={`lesson-tab-${idx}`}
+                                                role="tab"
+                                                aria-selected={isActive}
+                                                aria-controls={`lesson-tabpanel-${idx}`}
+                                                onClick={() =>
+                                                    setActiveIndex(idx)
+                                                }
+                                                ref={(node) => {
+                                                    tabRefs.current[idx] = node;
+                                                }}
+                                                className={`relative shrink-0 max-w-[68vw] sm:max-w-[260px] px-1.5 sm:px-2.5 py-2 text-[11px] sm:text-sm font-medium whitespace-nowrap border-b-2 transition-colors outline-none ${
+                                                    isActive
+                                                        ? 'text-slate-900 dark:text-white border-indigo-600'
+                                                        : 'text-slate-600 dark:text-slate-300 border-transparent hover:text-slate-900 dark:hover:text-white'
+                                                }`}
+                                                title={`${subj}${
+                                                    room ? ` • ${room}` : ''
+                                                }`}
+                                            >
+                                                <span className="inline-block truncate align-middle">
+                                                    {label}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={handleClose}
                         className="inline-flex items-center justify-center rounded-md p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60 transition"
@@ -167,7 +261,11 @@ export default function LessonModal({
                                     <button
                                         onClick={() =>
                                             copyToClipboard(
-                                                JSON.stringify(lesson, null, 2)
+                                                JSON.stringify(
+                                                    currentLesson,
+                                                    null,
+                                                    2
+                                                )
                                             )
                                         }
                                         className={`px-3 py-1.5 text-sm rounded-md shadow transition inline-flex items-center gap-1 ${
@@ -216,41 +314,46 @@ export default function LessonModal({
                                 </div>
                             </div>
                             <pre className="bg-slate-900/90 text-slate-100 p-4 rounded-lg text-xs overflow-x-auto ring-1 ring-black/10 dark:ring-white/10">
-                                {JSON.stringify(lesson, null, 2)}
+                                {JSON.stringify(currentLesson, null, 2)}
                             </pre>
                         </div>
                     ) : (
-                        <div className="space-y-6">
+                        <div
+                            id={`lesson-tabpanel-${activeIndex}`}
+                            role="tabpanel"
+                            aria-labelledby={`lesson-tab-${activeIndex}`}
+                            className="space-y-6"
+                        >
                             <LessonInfoBlocks
-                                lesson={lesson}
+                                lesson={currentLesson}
                                 cancelled={cancelled}
                             />
-                            <LessonStatus code={lesson.code} />
+                            <LessonStatus code={currentLesson.code} />
 
-                            {lesson.info && (
+                            {currentLesson.info && (
                                 <LessonInfoMessage
                                     title="Lesson Information"
-                                    text={lesson.info}
+                                    text={currentLesson.info}
                                     variant="info"
                                     cancelled={cancelled}
                                 />
                             )}
 
-                            {lesson.lstext && (
+                            {currentLesson.lstext && (
                                 <LessonInfoMessage
                                     title="Lesson Notes"
-                                    text={lesson.lstext}
+                                    text={currentLesson.lstext}
                                     variant="notes"
                                     cancelled={cancelled}
                                 />
                             )}
 
-                            <HomeworkList lesson={lesson} />
+                            <HomeworkList lesson={currentLesson} />
 
-                            <ExamsList lesson={lesson} />
+                            <ExamsList lesson={currentLesson} />
 
                             <ColorCustomization
-                                lesson={lesson}
+                                lesson={currentLesson}
                                 lessonColors={lessonColors}
                                 defaultLessonColors={defaultLessonColors}
                                 gradientOffsets={gradientOffsets}
@@ -265,7 +368,7 @@ export default function LessonModal({
                             )
                                 .trim()
                                 .toLowerCase() === 'true' && (
-                                <DevJsonPanel lesson={lesson} />
+                                <DevJsonPanel lesson={currentLesson} />
                             )}
                         </div>
                     )}
