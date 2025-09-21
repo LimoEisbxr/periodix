@@ -124,6 +124,35 @@ async function getCachedRange(ownerId: string, start: Date, end: Date) {
     });
 }
 
+// Simple in-memory cache for class timetables (5 min TTL)
+const classTimetableCache = new Map<string, {
+    createdAt: number;
+    rangeStart: Date;
+    rangeEnd: Date;
+    payload: any;
+}>();
+
+function classCacheKey(className: string, start: Date, end: Date): string {
+    return `${className.toLowerCase()}|${start.toISOString()}|${end.toISOString()}`;
+}
+
+async function getCachedClassRange(className: string, start: Date, end: Date) {
+    const key = classCacheKey(className, start, end);
+    const item = classTimetableCache.get(key);
+    if (!item) return null;
+    if (Date.now() - item.createdAt > WEEK_CACHE_TTL_MS) {
+        classTimetableCache.delete(key);
+        return null;
+    }
+    // Shape similar to Prisma result used by callers
+    return {
+        payload: item.payload,
+        rangeStart: item.rangeStart,
+        rangeEnd: item.rangeEnd,
+        createdAt: new Date(item.createdAt),
+    } as any;
+}
+
 async function fetchAndStoreUntis(args: {
     target: any;
     sd?: Date | undefined;
@@ -742,4 +771,368 @@ async function enrichLessonsWithHomeworkAndExams(
             exams: lessonExams.length > 0 ? lessonExams : undefined,
         };
     });
+}
+
+export async function getClassTimetableRange(args: {
+    requesterId: string;
+    className: string;
+    start?: string | undefined;
+    end?: string | undefined;
+}): Promise<any> {
+    const { requesterId, className, start, end } = args;
+    
+    // Parse date range
+    let sd: Date | undefined;
+    let ed: Date | undefined;
+    if (start && end) {
+        try {
+            sd = parseDate(start);
+            ed = parseDate(end);
+        } catch (e) {
+            throw new AppError('Invalid date format', 400, 'INVALID_DATE');
+        }
+    }
+
+    // Set default range to current week if not provided
+    if (!sd || !ed) {
+        const now = new Date();
+        sd = startOfISOWeek(now);
+        ed = endOfISOWeek(now);
+    }
+
+    // First, check for cached class timetable
+    const cached = await getCachedClassRange(className, sd, ed);
+    if (cached) {
+        console.debug('[class-timetable] using cached data', {
+            className,
+            rangeStart: sd,
+            rangeEnd: ed,
+        });
+        return {
+            userId: 'class:' + className,
+            rangeStart: sd.toISOString(),
+            rangeEnd: ed.toISOString(),
+            payload: cached.payload || [],
+            cached: true,
+            lastUpdated: cached.createdAt.toISOString(),
+        };
+    }
+
+    // Get requester user info including credentials (needed for WebUntis login)
+    const requester = await (prisma as any).user.findUnique({
+        where: { id: requesterId },
+        select: {
+            id: true,
+            username: true,
+            untisSecretCiphertext: true,
+            untisSecretNonce: true,
+            untisSecretKeyVersion: true,
+        },
+    });
+
+    if (!requester) {
+        throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    if (!requester.untisSecretCiphertext || !requester.untisSecretNonce) {
+        throw new AppError(
+            'User missing encrypted Untis credential',
+            400,
+            'MISSING_UNTIS_SECRET'
+        );
+    }
+
+    // Fetch fresh data and cache it
+    return await fetchAndStoreClassUntis({
+        requester,
+        className,
+        sd,
+        ed,
+    });
+}
+
+async function fetchAndStoreClassUntis(args: {
+    requester: any;
+    className: string;
+    sd: Date;
+    ed: Date;
+}): Promise<any> {
+    const { requester, className, sd, ed } = args;
+    
+    // Decrypt credentials
+    let untisPassword: string;
+    try {
+        untisPassword = decryptSecret({
+            ciphertext: requester.untisSecretCiphertext as any,
+            nonce: requester.untisSecretNonce as any,
+            keyVersion: requester.untisSecretKeyVersion || 1,
+        });
+    } catch (e) {
+        console.error('[class-timetable] decrypt secret failed', e);
+        throw new AppError(
+            'Credential decryption failed',
+            500,
+            'DECRYPT_FAILED'
+        );
+    }
+
+    const school = UNTIS_DEFAULT_SCHOOL;
+    const host = toHost();
+    const untis = new WebUntis(
+        school,
+        requester.username,
+        untisPassword,
+        host
+    ) as any;
+
+    try {
+        await untis.login();
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
+
+    let lessonsData: any;
+
+    try {
+        // Resolve class id from className first
+        const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '');
+        let klassId: number | undefined;
+        if (typeof untis.getClasses === 'function') {
+            const allClasses = await untis.getClasses();
+            if (Array.isArray(allClasses)) {
+                const wanted = norm(className);
+                const found = allClasses.find((c: any) => {
+                    const n1 = c?.name ? norm(String(c.name)) : '';
+                    const n2 = c?.longName ? norm(String(c.longName)) : '';
+                    return n1 === wanted || n2 === wanted;
+                });
+                if (found?.id && Number.isInteger(found.id)) {
+                    klassId = found.id;
+                }
+            }
+        }
+        if (!klassId) {
+            throw new AppError('Class not found', 404, 'CLASS_NOT_FOUND');
+        }
+
+        // Fetch class timetable via generic API
+        const CLASS_TYPE = 1;
+        if (typeof untis.getTimetableForRange === 'function') {
+            try {
+                // Per docs: getTimetableForRange(rangeStart, rangeEnd, id, type)
+                lessonsData = await untis.getTimetableForRange(
+                    sd,
+                    ed,
+                    klassId,
+                    CLASS_TYPE
+                );
+            } catch (e1: any) {
+                try {
+                    // Some forks may accept (rangeStart, rangeEnd, type, id)
+                    lessonsData = await untis.getTimetableForRange(
+                        sd,
+                        ed,
+                        CLASS_TYPE,
+                        klassId
+                    );
+                } catch (e2: any) {
+                    throw e2;
+                }
+            }
+        } else if (typeof untis.getTimetableForToday === 'function') {
+            // Fallback to today only
+            lessonsData = await untis.getTimetableForToday(klassId, CLASS_TYPE);
+        } else if (typeof untis.getTimetable === 'function') {
+            // Legacy fallback: getTimetable(elementType, id, start, end)
+            lessonsData = await untis.getTimetable(CLASS_TYPE, klassId, sd, ed);
+        } else {
+            throw new AppError(
+                'Class timetable methods not available',
+                502,
+                'UNTIS_METHOD_UNAVAILABLE'
+            );
+        }
+
+        console.debug('[class-timetable] fetched lessons count', {
+            className,
+            classId: klassId,
+            count: Array.isArray(lessonsData) ? lessonsData.length : 'N/A',
+        });
+
+        const finalLessons = Array.isArray(lessonsData) ? lessonsData : [];
+
+        // Store in in-memory cache (avoid DB FK constraints)
+        const key = classCacheKey(className, startOfDay(sd), endOfDay(ed));
+        classTimetableCache.set(key, {
+            createdAt: Date.now(),
+            rangeStart: startOfDay(sd),
+            rangeEnd: endOfDay(ed),
+            payload: finalLessons,
+        });
+
+        return {
+            userId: `class:${className}`,
+            rangeStart: sd.toISOString(),
+            rangeEnd: ed.toISOString(),
+            payload: finalLessons,
+            cached: false,
+            lastUpdated: new Date().toISOString(),
+        };
+    } catch (e: any) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (
+            msg.includes("didn't return any result") ||
+            msg.includes('did not return any result') ||
+            msg.includes('no result')
+        ) {
+            console.warn('[class-timetable] no result from Untis, returning empty');
+            const key = classCacheKey(className, startOfDay(sd), endOfDay(ed));
+            classTimetableCache.set(key, {
+                createdAt: Date.now(),
+                rangeStart: startOfDay(sd),
+                rangeEnd: endOfDay(ed),
+                payload: [],
+            });
+            return {
+                userId: `class:${className}`,
+                rangeStart: sd.toISOString(),
+                rangeEnd: ed.toISOString(),
+                payload: [],
+                cached: false,
+                lastUpdated: new Date().toISOString(),
+            };
+        }
+        console.error('[class-timetable] error', e);
+        throw new AppError(
+            'Failed to fetch class timetable',
+            502,
+            'UNTIS_FETCH_FAILED'
+        );
+    } finally {
+        try {
+            await untis.logout?.();
+        } catch {}
+    }
+}
+
+export async function getUserAvailableClasses(args: {
+    requesterId: string;
+}): Promise<string[]> {
+    const { requesterId } = args;
+    
+    // Get requester user info including credentials
+    const requester = await (prisma as any).user.findUnique({
+        where: { id: requesterId },
+        select: {
+            id: true,
+            username: true,
+            untisSecretCiphertext: true,
+            untisSecretNonce: true,
+            untisSecretKeyVersion: true,
+        },
+    });
+
+    if (!requester) {
+        throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    if (!requester.untisSecretCiphertext || !requester.untisSecretNonce) {
+        throw new AppError(
+            'User missing encrypted Untis credential',
+            400,
+            'MISSING_UNTIS_SECRET'
+        );
+    }
+
+    // Decrypt credentials
+    let untisPassword: string;
+    try {
+        untisPassword = decryptSecret({
+            ciphertext: requester.untisSecretCiphertext as any,
+            nonce: requester.untisSecretNonce as any,
+            keyVersion: requester.untisSecretKeyVersion || 1,
+        });
+    } catch (e) {
+        console.error('[classes] decrypt secret failed', e);
+        throw new AppError(
+            'Credential decryption failed',
+            500,
+            'DECRYPT_FAILED'
+        );
+    }
+
+    const school = UNTIS_DEFAULT_SCHOOL;
+    const host = toHost();
+    const untis = new WebUntis(
+        school,
+        requester.username,
+        untisPassword,
+        host
+    ) as any;
+
+    try {
+        await untis.login();
+        
+        // Get user's class info using existing function logic
+        let classes: string[] = [];
+        
+        try {
+            // Try to get user's own classes first
+            if (typeof untis.getOwnClassesList === 'function') {
+                const classList = await untis.getOwnClassesList();
+                classes = Array.isArray(classList) 
+                    ? classList.map((c: any) => c.name || c.longName || String(c)).filter(Boolean)
+                    : [];
+            } else if (typeof untis.getOwnStudentId === 'function') {
+                // Alternative approach: get student info
+                const studentId = await untis.getOwnStudentId();
+                if (studentId && typeof untis.getStudent === 'function') {
+                    const student = await untis.getStudent(studentId);
+                    if (student?.klasse) {
+                        classes = Array.isArray(student.klasse) 
+                            ? student.klasse.map((k: any) => k.name || k.longName || String(k)).filter(Boolean)
+                            : [String(student.klasse)];
+                    }
+                }
+            }
+            
+            // If still no classes found, get all available classes as fallback
+            if (classes.length === 0 && typeof untis.getClasses === 'function') {
+                const allClasses = await untis.getClasses();
+                if (Array.isArray(allClasses)) {
+                    classes = allClasses
+                        .map((c: any) => c.name || c.longName || String(c))
+                        .filter(Boolean)
+                        .sort();
+                }
+            }
+        } catch (e: any) {
+            console.warn('[classes] failed to get user class info', e?.message);
+            classes = [];
+        }
+        
+        try {
+            await untis.logout?.();
+        } catch {}
+        
+        return classes;
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
 }
