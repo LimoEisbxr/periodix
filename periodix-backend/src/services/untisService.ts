@@ -267,6 +267,10 @@ async function fetchAndStoreUntis(args: {
             });
             try {
                 examData = await untis.getExamsForRange(sd, ed);
+                console.debug('[timetable] fetched exam data', {
+                    count: Array.isArray(examData) ? examData.length : 0,
+                    sample: Array.isArray(examData) && examData.length > 0 ? examData[0] : null
+                });
             } catch (e: any) {
                 console.warn(
                     '[timetable] getExamsForRange failed, continuing without exams',
@@ -582,34 +586,53 @@ async function storeHomeworkData(
 async function storeExamData(userId: string, examData: any[]) {
     for (const exam of examData) {
         try {
+            // Process teachers and rooms data appropriately for storage
+            const processedTeachers = exam.teachers && Array.isArray(exam.teachers) 
+                ? exam.teachers.map((teacher: any) => ({
+                    id: typeof teacher === 'object' ? teacher.id : undefined,
+                    name: typeof teacher === 'string' ? teacher : teacher?.name || ''
+                }))
+                : null;
+                
+            const processedRooms = exam.rooms && Array.isArray(exam.rooms)
+                ? exam.rooms.map((room: any) => ({
+                    id: typeof room === 'object' ? room.id : undefined,  
+                    name: typeof room === 'string' ? room : room?.name || ''
+                }))
+                : null;
+
             await (prisma as any).exam.upsert({
                 where: { userId_untisId: { userId, untisId: exam.id } },
                 update: {
-                    date: exam.date,
+                    // Use examDate property from WebUntis API
+                    date: exam.examDate || exam.date,
                     startTime: exam.startTime,
                     endTime: exam.endTime,
-                    subjectId: exam.subject?.id,
-                    subject: exam.subject?.name || '',
+                    // Handle subject as string or object
+                    subjectId: typeof exam.subject === 'object' ? exam.subject?.id : undefined,
+                    subject: typeof exam.subject === 'string' ? exam.subject : exam.subject?.name || '',
                     name: exam.name || '',
-                    text: exam.text,
-                    // Store as JSON or set null when absent
-                    teachers: exam.teachers ?? null,
-                    rooms: exam.rooms ?? null,
+                    text: exam.text || '',
+                    // Store processed JSON or set null when absent
+                    teachers: processedTeachers,
+                    rooms: processedRooms,
                     fetchedAt: new Date(),
                 },
                 create: {
                     untisId: exam.id,
                     userId,
-                    date: exam.date,
+                    // Use examDate property from WebUntis API
+                    date: exam.examDate || exam.date,
                     startTime: exam.startTime,
                     endTime: exam.endTime,
-                    subjectId: exam.subject?.id,
-                    subject: exam.subject?.name || '',
+                    // Handle subject as string or object
+                    subjectId: typeof exam.subject === 'object' ? exam.subject?.id : undefined,
+                    subject: typeof exam.subject === 'string' ? exam.subject : exam.subject?.name || '',
                     name: exam.name || '',
-                    text: exam.text,
-                    // Store as JSON or set null when absent
-                    teachers: exam.teachers ?? null,
-                    rooms: exam.rooms ?? null,
+                    text: exam.text || '',
+                    // Store processed JSON or set null when absent
+                    teachers: processedTeachers,
+                    rooms: processedRooms,
                 },
             });
         } catch (e: any) {
@@ -719,9 +742,32 @@ async function enrichLessonsWithHomeworkAndExams(
 
         const lessonExams = exams
             .filter(
-                (exam: any) =>
-                    exam.date === lesson.date &&
-                    exam.subject === lesson.su?.[0]?.name
+                (exam: any) => {
+                    const dateMatch = exam.date === lesson.date;
+                    const subjectMatch = exam.subject === lesson.su?.[0]?.name;
+                    
+                    // More flexible subject matching - check if subject names are similar
+                    const flexibleSubjectMatch = !subjectMatch && lesson.su?.[0]?.name && exam.subject
+                        ? lesson.su[0].name.toLowerCase().includes(exam.subject.toLowerCase()) ||
+                          exam.subject.toLowerCase().includes(lesson.su[0].name.toLowerCase())
+                        : false;
+                    
+                    const shouldMatch = dateMatch && (subjectMatch || flexibleSubjectMatch);
+                    
+                    if (exam.date === lesson.date) {
+                        console.debug('[exam-matching]', {
+                            examDate: exam.date,
+                            lessonDate: lesson.date,
+                            examSubject: exam.subject,
+                            lessonSubject: lesson.su?.[0]?.name,
+                            exactSubjectMatch: subjectMatch,
+                            flexibleSubjectMatch: flexibleSubjectMatch,
+                            willMatch: shouldMatch
+                        });
+                    }
+                    
+                    return shouldMatch;
+                }
             )
             .map((exam: any) => ({
                 id: exam.untisId,
@@ -736,10 +782,23 @@ async function enrichLessonsWithHomeworkAndExams(
                 text: exam.text,
             }));
 
-        return {
+        const result = {
             ...lesson,
             homework: lessonHomework.length > 0 ? lessonHomework : undefined,
             exams: lessonExams.length > 0 ? lessonExams : undefined,
         };
+        
+        // Debug logging for lessons with exams
+        if (lessonExams.length > 0) {
+            console.debug('[lesson-exam-enrichment]', {
+                lessonId: lesson.id,
+                lessonDate: lesson.date,
+                lessonSubject: lesson.su?.[0]?.name,
+                examCount: lessonExams.length,
+                exams: lessonExams.map((e: any) => ({ name: e.name, subject: e.subject.name }))
+            });
+        }
+        
+        return result;
     });
 }
