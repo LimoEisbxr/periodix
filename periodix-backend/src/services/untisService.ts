@@ -124,19 +124,33 @@ async function getCachedRange(ownerId: string, start: Date, end: Date) {
     });
 }
 
+// Simple in-memory cache for class timetables (5 min TTL)
+const classTimetableCache = new Map<string, {
+    createdAt: number;
+    rangeStart: Date;
+    rangeEnd: Date;
+    payload: any;
+}>();
+
+function classCacheKey(className: string, start: Date, end: Date): string {
+    return `${className.toLowerCase()}|${start.toISOString()}|${end.toISOString()}`;
+}
+
 async function getCachedClassRange(className: string, start: Date, end: Date) {
-    const since = new Date(Date.now() - WEEK_CACHE_TTL_MS);
-    // Use className as a special ownerId for class timetables
-    const classOwnerId = `class:${className}`;
-    return prisma.timetable.findFirst({
-        where: {
-            ownerId: classOwnerId,
-            rangeStart: start,
-            rangeEnd: end,
-            createdAt: { gt: since },
-        },
-        orderBy: { createdAt: 'desc' },
-    });
+    const key = classCacheKey(className, start, end);
+    const item = classTimetableCache.get(key);
+    if (!item) return null;
+    if (Date.now() - item.createdAt > WEEK_CACHE_TTL_MS) {
+        classTimetableCache.delete(key);
+        return null;
+    }
+    // Shape similar to Prisma result used by callers
+    return {
+        payload: item.payload,
+        rangeStart: item.rangeStart,
+        rangeEnd: item.rangeEnd,
+        createdAt: new Date(item.createdAt),
+    } as any;
 }
 
 async function fetchAndStoreUntis(args: {
@@ -888,17 +902,57 @@ async function fetchAndStoreClassUntis(args: {
     let lessonsData: any;
 
     try {
-        // Fetch class timetable using getOwnClassTimetableFor
-        if (sd && ed && typeof untis.getOwnClassTimetableFor === 'function') {
-            console.debug('[class-timetable] calling getOwnClassTimetableFor', {
-                className,
-                start: sd,
-                end: ed,
-            });
-            lessonsData = await untis.getOwnClassTimetableFor(sd, ed);
-        } else if (typeof untis.getOwnClassTimetableForToday === 'function') {
-            console.debug('[class-timetable] calling getOwnClassTimetableForToday');
-            lessonsData = await untis.getOwnClassTimetableForToday();
+        // Resolve class id from className first
+        const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '');
+        let klassId: number | undefined;
+        if (typeof untis.getClasses === 'function') {
+            const allClasses = await untis.getClasses();
+            if (Array.isArray(allClasses)) {
+                const wanted = norm(className);
+                const found = allClasses.find((c: any) => {
+                    const n1 = c?.name ? norm(String(c.name)) : '';
+                    const n2 = c?.longName ? norm(String(c.longName)) : '';
+                    return n1 === wanted || n2 === wanted;
+                });
+                if (found?.id && Number.isInteger(found.id)) {
+                    klassId = found.id;
+                }
+            }
+        }
+        if (!klassId) {
+            throw new AppError('Class not found', 404, 'CLASS_NOT_FOUND');
+        }
+
+        // Fetch class timetable via generic API
+        const CLASS_TYPE = 1;
+        if (typeof untis.getTimetableForRange === 'function') {
+            try {
+                // Per docs: getTimetableForRange(rangeStart, rangeEnd, id, type)
+                lessonsData = await untis.getTimetableForRange(
+                    sd,
+                    ed,
+                    klassId,
+                    CLASS_TYPE
+                );
+            } catch (e1: any) {
+                try {
+                    // Some forks may accept (rangeStart, rangeEnd, type, id)
+                    lessonsData = await untis.getTimetableForRange(
+                        sd,
+                        ed,
+                        CLASS_TYPE,
+                        klassId
+                    );
+                } catch (e2: any) {
+                    throw e2;
+                }
+            }
+        } else if (typeof untis.getTimetableForToday === 'function') {
+            // Fallback to today only
+            lessonsData = await untis.getTimetableForToday(klassId, CLASS_TYPE);
+        } else if (typeof untis.getTimetable === 'function') {
+            // Legacy fallback: getTimetable(elementType, id, start, end)
+            lessonsData = await untis.getTimetable(CLASS_TYPE, klassId, sd, ed);
         } else {
             throw new AppError(
                 'Class timetable methods not available',
@@ -909,45 +963,23 @@ async function fetchAndStoreClassUntis(args: {
 
         console.debug('[class-timetable] fetched lessons count', {
             className,
+            classId: klassId,
             count: Array.isArray(lessonsData) ? lessonsData.length : 'N/A',
         });
 
-        // Process and normalize lessons data similar to user timetables
         const finalLessons = Array.isArray(lessonsData) ? lessonsData : [];
 
-        // Cache in database using special ownerId for class timetables
-        const classOwnerId = `class:${className}`;
-        const rangeStart = sd ? startOfDay(sd) : null;
-        const rangeEnd = ed ? endOfDay(ed) : null;
-        
-        // Ensure we have valid dates for database storage
-        if (!rangeStart || !rangeEnd) {
-            throw new AppError('Invalid date range for caching', 400, 'INVALID_DATE_RANGE');
-        }
-
-        // Store in database for caching
-        console.debug('[class-timetable] storing in database', {
-            className,
-            classOwnerId,
-            lessonsCount: finalLessons.length,
-            rangeStart: rangeStart.toISOString(),
-            rangeEnd: rangeEnd.toISOString(),
+        // Store in in-memory cache (avoid DB FK constraints)
+        const key = classCacheKey(className, startOfDay(sd), endOfDay(ed));
+        classTimetableCache.set(key, {
+            createdAt: Date.now(),
+            rangeStart: startOfDay(sd),
+            rangeEnd: endOfDay(ed),
+            payload: finalLessons,
         });
-
-        await prisma.timetable.create({
-            data: {
-                ownerId: classOwnerId,
-                payload: finalLessons,
-                rangeStart,
-                rangeEnd,
-            },
-        });
-
-        // Run cleanup to maintain cache size
-        await pruneOldTimetables();
 
         return {
-            userId: classOwnerId,
+            userId: `class:${className}`,
             rangeStart: sd.toISOString(),
             rangeEnd: ed.toISOString(),
             payload: finalLessons,
@@ -955,6 +987,29 @@ async function fetchAndStoreClassUntis(args: {
             lastUpdated: new Date().toISOString(),
         };
     } catch (e: any) {
+        const msg = String(e?.message || '').toLowerCase();
+        if (
+            msg.includes("didn't return any result") ||
+            msg.includes('did not return any result') ||
+            msg.includes('no result')
+        ) {
+            console.warn('[class-timetable] no result from Untis, returning empty');
+            const key = classCacheKey(className, startOfDay(sd), endOfDay(ed));
+            classTimetableCache.set(key, {
+                createdAt: Date.now(),
+                rangeStart: startOfDay(sd),
+                rangeEnd: endOfDay(ed),
+                payload: [],
+            });
+            return {
+                userId: `class:${className}`,
+                rangeStart: sd.toISOString(),
+                rangeEnd: ed.toISOString(),
+                payload: [],
+                cached: false,
+                lastUpdated: new Date().toISOString(),
+            };
+        }
         console.error('[class-timetable] error', e);
         throw new AppError(
             'Failed to fetch class timetable',
