@@ -124,6 +124,21 @@ async function getCachedRange(ownerId: string, start: Date, end: Date) {
     });
 }
 
+async function getCachedClassRange(className: string, start: Date, end: Date) {
+    const since = new Date(Date.now() - WEEK_CACHE_TTL_MS);
+    // Use className as a special ownerId for class timetables
+    const classOwnerId = `class:${className}`;
+    return prisma.timetable.findFirst({
+        where: {
+            ownerId: classOwnerId,
+            rangeStart: start,
+            rangeEnd: end,
+            createdAt: { gt: since },
+        },
+        orderBy: { createdAt: 'desc' },
+    });
+}
+
 async function fetchAndStoreUntis(args: {
     target: any;
     sd?: Date | undefined;
@@ -752,7 +767,44 @@ export async function getClassTimetableRange(args: {
 }): Promise<any> {
     const { requesterId, className, start, end } = args;
     
-    // Get requester user info including credentials
+    // Parse date range
+    let sd: Date | undefined;
+    let ed: Date | undefined;
+    if (start && end) {
+        try {
+            sd = parseDate(start);
+            ed = parseDate(end);
+        } catch (e) {
+            throw new AppError('Invalid date format', 400, 'INVALID_DATE');
+        }
+    }
+
+    // Set default range to current week if not provided
+    if (!sd || !ed) {
+        const now = new Date();
+        sd = startOfISOWeek(now);
+        ed = endOfISOWeek(now);
+    }
+
+    // First, check for cached class timetable
+    const cached = await getCachedClassRange(className, sd, ed);
+    if (cached) {
+        console.debug('[class-timetable] using cached data', {
+            className,
+            rangeStart: sd,
+            rangeEnd: ed,
+        });
+        return {
+            userId: 'class:' + className,
+            rangeStart: sd.toISOString(),
+            rangeEnd: ed.toISOString(),
+            payload: cached.payload || [],
+            cached: true,
+            lastUpdated: cached.createdAt.toISOString(),
+        };
+    }
+
+    // Get requester user info including credentials (needed for WebUntis login)
     const requester = await (prisma as any).user.findUnique({
         where: { id: requesterId },
         select: {
@@ -776,25 +828,7 @@ export async function getClassTimetableRange(args: {
         );
     }
 
-    // Parse date range
-    let sd: Date | undefined;
-    let ed: Date | undefined;
-    if (start && end) {
-        try {
-            sd = parseDate(start);
-            ed = parseDate(end);
-        } catch (e) {
-            throw new AppError('Invalid date format', 400, 'INVALID_DATE');
-        }
-    }
-
-    // Set default range to current week if not provided
-    if (!sd || !ed) {
-        const now = new Date();
-        sd = startOfISOWeek(now);
-        ed = endOfISOWeek(now);
-    }
-
+    // Fetch fresh data and cache it
     return await fetchAndStoreClassUntis({
         requester,
         className,
@@ -854,14 +888,14 @@ async function fetchAndStoreClassUntis(args: {
     let lessonsData: any;
 
     try {
-        // Fetch class timetable using getOwnClassTimetableForRange
-        if (sd && ed && typeof untis.getOwnClassTimetableForRange === 'function') {
-            console.debug('[class-timetable] calling getOwnClassTimetableForRange', {
+        // Fetch class timetable using getOwnClassTimetableFor
+        if (sd && ed && typeof untis.getOwnClassTimetableFor === 'function') {
+            console.debug('[class-timetable] calling getOwnClassTimetableFor', {
                 className,
                 start: sd,
                 end: ed,
             });
-            lessonsData = await untis.getOwnClassTimetableForRange(sd, ed);
+            lessonsData = await untis.getOwnClassTimetableFor(sd, ed);
         } else if (typeof untis.getOwnClassTimetableForToday === 'function') {
             console.debug('[class-timetable] calling getOwnClassTimetableForToday');
             lessonsData = await untis.getOwnClassTimetableForToday();
@@ -878,15 +912,45 @@ async function fetchAndStoreClassUntis(args: {
             count: Array.isArray(lessonsData) ? lessonsData.length : 'N/A',
         });
 
-        // The class timetable doesn't need homework/exam enrichment as it's not user-specific
-        // Return lessons data directly
+        // Process and normalize lessons data similar to user timetables
         const finalLessons = Array.isArray(lessonsData) ? lessonsData : [];
 
-        return {
-            lessons: finalLessons,
+        // Cache in database using special ownerId for class timetables
+        const classOwnerId = `class:${className}`;
+        const rangeStart = sd ? startOfDay(sd) : null;
+        const rangeEnd = ed ? endOfDay(ed) : null;
+        
+        // Ensure we have valid dates for database storage
+        if (!rangeStart || !rangeEnd) {
+            throw new AppError('Invalid date range for caching', 400, 'INVALID_DATE_RANGE');
+        }
+
+        // Store in database for caching
+        console.debug('[class-timetable] storing in database', {
             className,
-            start: sd.toISOString(),
-            end: ed.toISOString(),
+            classOwnerId,
+            lessonsCount: finalLessons.length,
+            rangeStart: rangeStart.toISOString(),
+            rangeEnd: rangeEnd.toISOString(),
+        });
+
+        await prisma.timetable.create({
+            data: {
+                ownerId: classOwnerId,
+                payload: finalLessons,
+                rangeStart,
+                rangeEnd,
+            },
+        });
+
+        // Run cleanup to maintain cache size
+        await pruneOldTimetables();
+
+        return {
+            userId: classOwnerId,
+            rangeStart: sd.toISOString(),
+            rangeEnd: ed.toISOString(),
+            payload: finalLessons,
             cached: false,
             lastUpdated: new Date().toISOString(),
         };
