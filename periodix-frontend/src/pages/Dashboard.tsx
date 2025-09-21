@@ -19,6 +19,8 @@ import {
     updateNotificationSettings,
     getUserPreferences,
     updateUserPreferences,
+    getAvailableClasses,
+    getClassTimetable,
 } from '../api';
 import {
     isServiceWorkerSupported,
@@ -63,19 +65,34 @@ export default function Dashboard({
     const [colorError, setColorError] = useState<string | null>(null);
     const [queryText, setQueryText] = useState('');
     const [results, setResults] = useState<
-        Array<{ id: string; username: string; displayName: string | null }>
+        Array<{ 
+            type: 'user' | 'class';
+            id: string; 
+            username?: string; 
+            displayName?: string | null;
+            className?: string;
+        }>
     >([]);
     // Track loading & error state for search to avoid flicker on mobile
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     // Persist last successful results so they don't vanish while a new request is in-flight
     const lastResultsRef = useRef<
-        Array<{ id: string; username: string; displayName: string | null }>
+        Array<{ 
+            type: 'user' | 'class';
+            id: string; 
+            username?: string; 
+            displayName?: string | null;
+            className?: string;
+        }>
     >([]);
     const [selectedUser, setSelectedUser] = useState<{
         id: string;
         username: string;
         displayName: string | null;
+    } | null>(null);
+    const [selectedClass, setSelectedClass] = useState<{
+        className: string;
     } | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const searchBoxRef = useRef<HTMLDivElement | null>(null);
@@ -292,11 +309,62 @@ export default function Dashboard({
         ]
     );
 
+    const loadClass = useCallback(
+        async (className: string) => {
+            setLoadError(null);
+            try {
+                // Track class timetable view
+                trackActivity(token, 'class_timetable_view', {
+                    className,
+                }).catch(console.error);
+
+                const res = await getClassTimetable(token, className, weekStartStr, weekEndStr);
+                setMine({
+                    ...res,
+                    userId: 'class:' + className, // Special userId for class timetables
+                });
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Failed to load class';
+                // Auto-retry if rate-limited
+                try {
+                    const parsed = JSON.parse(msg);
+                    if (parsed?.status === 429) {
+                        const retryAfterSec = Math.max(
+                            1,
+                            Number(parsed?.retryAfter || 0) || 1
+                        );
+                        setRetrySeconds(retryAfterSec);
+                        setLoadError(null);
+                        const t = setTimeout(() => {
+                            setRetrySeconds(null);
+                            loadClass(className);
+                        }, retryAfterSec * 1000);
+                        return () => clearTimeout(t);
+                    }
+                } catch {
+                    // ignore JSON parse errors and non-structured messages
+                }
+                setLoadError(msg);
+                setMine({
+                    userId: 'class:' + className,
+                    rangeStart: weekStartStr,
+                    rangeEnd: weekEndStr,
+                    payload: [],
+                });
+            }
+        },
+        [token, weekStartStr, weekEndStr]
+    );
+
     useEffect(() => {
-        if (selectedUser && selectedUser.id !== user.id)
+        if (selectedUser && selectedUser.id !== user.id) {
             loadUser(selectedUser.id);
-        else loadMine();
-    }, [loadUser, loadMine, selectedUser, user.id]);
+        } else if (selectedClass) {
+            loadClass(selectedClass.className);
+        } else {
+            loadMine();
+        }
+    }, [loadUser, loadMine, loadClass, selectedUser, selectedClass, user.id]);
 
     // Load user's lesson colors
     useEffect(() => {
@@ -709,20 +777,58 @@ export default function Dashboard({
                 const base = API_BASE
                     ? String(API_BASE).replace(/\/$/, '')
                     : '';
-                const url = `${base}/api/users/search?q=${encodeURIComponent(
-                    currentQuery
-                )}`;
-                const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${token}` },
-                    signal: ac.signal,
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
+                
+                // Search both users and classes in parallel
+                const [userRes, classRes] = await Promise.allSettled([
+                    fetch(`${base}/api/users/search?q=${encodeURIComponent(currentQuery)}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        signal: ac.signal,
+                    }),
+                    getAvailableClasses(token)
+                ]);
+                
                 if (cancelled) return;
                 if (queryText.trim() !== currentQuery) return; // stale
-                const users = Array.isArray(data.users) ? data.users : [];
-                setResults(users);
-                lastResultsRef.current = users;
+
+                const combinedResults: Array<{ 
+                    type: 'user' | 'class';
+                    id: string; 
+                    username?: string; 
+                    displayName?: string | null;
+                    className?: string;
+                }> = [];
+
+                // Process user search results
+                if (userRes.status === 'fulfilled' && userRes.value.ok) {
+                    const userData = await userRes.value.json();
+                    const users = Array.isArray(userData.users) ? userData.users : [];
+                    users.forEach((user: { id: string; username: string; displayName?: string | null }) => {
+                        combinedResults.push({
+                            type: 'user',
+                            id: user.id,
+                            username: user.username,
+                            displayName: user.displayName,
+                        });
+                    });
+                }
+
+                // Process class search results
+                if (classRes.status === 'fulfilled') {
+                    const classes = classRes.value.classes || [];
+                    classes.forEach((className: string) => {
+                        // Simple case-insensitive matching for class names
+                        if (className.toLowerCase().includes(currentQuery.toLowerCase())) {
+                            combinedResults.push({
+                                type: 'class',
+                                id: 'class:' + className,
+                                className,
+                            });
+                        }
+                    });
+                }
+
+                setResults(combinedResults);
+                lastResultsRef.current = combinedResults;
             } catch (e: unknown) {
                 if (
                     e &&
@@ -992,37 +1098,51 @@ export default function Dashboard({
                                                             <button
                                                                 className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                                                                 onClick={() => {
-                                                                    setSelectedUser(
-                                                                        r
-                                                                    );
-                                                                    setQueryText(
-                                                                        r.displayName ||
-                                                                            r.username
-                                                                    );
-                                                                    setResults(
-                                                                        []
-                                                                    );
-                                                                    if (
-                                                                        r.id !==
-                                                                        user.id
-                                                                    )
-                                                                        loadUser(
-                                                                            r.id
+                                                                    if (r.type === 'user') {
+                                                                        setSelectedUser({
+                                                                            id: r.id,
+                                                                            username: r.username!,
+                                                                            displayName: r.displayName!,
+                                                                        });
+                                                                        setSelectedClass(null);
+                                                                        setQueryText(
+                                                                            r.displayName ||
+                                                                                r.username!
                                                                         );
-                                                                    else
-                                                                        loadMine();
+                                                                    } else if (r.type === 'class') {
+                                                                        setSelectedClass({
+                                                                            className: r.className!,
+                                                                        });
+                                                                        setSelectedUser(null);
+                                                                        setQueryText(r.className!);
+                                                                    }
+                                                                    setResults([]);
                                                                 }}
                                                             >
-                                                                <div className="font-medium">
-                                                                    {r.displayName ||
-                                                                        r.username}
-                                                                </div>
-                                                                {r.displayName && (
-                                                                    <div className="text-xs text-slate-500">
-                                                                        {
-                                                                            r.username
-                                                                        }
-                                                                    </div>
+                                                                {r.type === 'user' ? (
+                                                                    <>
+                                                                        <div className="font-medium">
+                                                                            {r.displayName ||
+                                                                                r.username}
+                                                                        </div>
+                                                                        {r.displayName && (
+                                                                            <div className="text-xs text-slate-500">
+                                                                                @{r.username}
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <div className="font-medium flex items-center gap-2">
+                                                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                                                                CLASS
+                                                                            </span>
+                                                                            {r.className}
+                                                                        </div>
+                                                                        <div className="text-xs text-slate-500">
+                                                                            Class timetable
+                                                                        </div>
+                                                                    </>
                                                                 )}
                                                             </button>
                                                         </li>
@@ -1466,35 +1586,67 @@ export default function Dashboard({
                                             <button
                                                 className="w-full rounded-xl p-4 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm hover:shadow-md group"
                                                 onClick={() => {
-                                                    setSelectedUser(r);
+                                                    if (r.type === 'user') {
+                                                        setSelectedUser({
+                                                            id: r.id,
+                                                            username: r.username!,
+                                                            displayName: r.displayName!,
+                                                        });
+                                                        setSelectedClass(null);
+                                                    } else if (r.type === 'class') {
+                                                        setSelectedClass({
+                                                            className: r.className!,
+                                                        });
+                                                        setSelectedUser(null);
+                                                    }
                                                     setQueryText('');
                                                     setResults([]);
                                                     setMobileSearchOpen(false);
-                                                    if (r.id !== user.id)
-                                                        loadUser(r.id);
-                                                    else loadMine();
                                                 }}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
-                                                        {(
-                                                            r.displayName ||
-                                                            r.username
-                                                        )
-                                                            .charAt(0)
-                                                            .toUpperCase()}
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
-                                                            {r.displayName ||
-                                                                r.username}
-                                                        </div>
-                                                        {r.displayName && (
-                                                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                                                                @{r.username}
+                                                    {r.type === 'user' ? (
+                                                        <>
+                                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                                                                {(
+                                                                    r.displayName ||
+                                                                    r.username!
+                                                                )
+                                                                    .charAt(0)
+                                                                    .toUpperCase()}
                                                             </div>
-                                                        )}
-                                                    </div>
+                                                            <div className="flex-1">
+                                                                <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
+                                                                    {r.displayName ||
+                                                                        r.username}
+                                                                </div>
+                                                                {r.displayName && (
+                                                                    <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                        @{r.username}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                                                                {r.className!.charAt(0).toUpperCase()}
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                                                        CLASS
+                                                                    </span>
+                                                                    <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors">
+                                                                        {r.className}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                    Class timetable
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
                                                     <div className="text-slate-400 dark:text-slate-500 group-hover:text-sky-500 dark:group-hover:text-sky-400 transition-colors">
                                                         <svg
                                                             className="w-5 h-5"

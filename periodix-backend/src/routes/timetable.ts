@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../server/authMiddleware.js';
 import jwt from 'jsonwebtoken';
-import { getOrFetchTimetableRange } from '../services/untisService.js';
+import { getOrFetchTimetableRange, getClassTimetableRange, getUserAvailableClasses } from '../services/untisService.js';
 import { untisUserLimiter } from '../server/untisRateLimiter.js';
 import { prisma } from '../store/prisma.js';
 
@@ -10,6 +10,12 @@ const router = Router();
 
 const rangeSchema = z.object({
     userId: z.string().uuid().optional(),
+    start: z.string().optional(),
+    end: z.string().optional(),
+});
+
+const classSchema = z.object({
+    className: z.string().trim().min(1).max(50),
     start: z.string().optional(),
     end: z.string().optional(),
 });
@@ -145,5 +151,65 @@ router.get(
         }
     }
 );
+
+router.get(
+    '/class/:className',
+    authMiddleware,
+    untisUserLimiter,
+    async (req, res) => {
+        const params = classSchema.safeParse({
+            ...req.query,
+            className: req.params.className,
+        });
+        if (!params.success)
+            return res.status(400).json({ error: params.error.flatten() });
+        
+        try {
+            const { className, start, end } = params.data;
+            const requesterId = req.user!.id;
+            
+            // All authenticated users can view class timetables
+            // This is public information for students in that class
+            const data = await getClassTimetableRange({
+                requesterId,
+                className,
+                start,
+                end,
+            });
+            res.json(data);
+        } catch (e: any) {
+            const status = e?.status || 500;
+            console.error('[timetable/class] error', {
+                status,
+                message: e?.message,
+                code: e?.code,
+                className: req.params.className,
+            });
+            res.status(status).json({
+                error: e?.message || 'Failed to fetch class timetable',
+                code: e?.code,
+            });
+        }
+    }
+);
+
+router.get('/classes', authMiddleware, untisUserLimiter, async (req, res) => {
+    try {
+        const requesterId = req.user!.id;
+        const classes = await getUserAvailableClasses({ requesterId });
+        res.json({ classes });
+    } catch (e: any) {
+        const status = e?.status || 500;
+        console.error('[timetable/classes] error', {
+            status,
+            message: e?.message,
+            code: e?.code,
+        });
+        res.status(status).json({
+            error: e?.message || 'Failed to fetch classes',
+            code: e?.code,
+        });
+    }
+});
 
 export default router;
