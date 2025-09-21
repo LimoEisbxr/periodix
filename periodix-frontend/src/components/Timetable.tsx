@@ -1301,15 +1301,32 @@ export default function Timetable({
             hasNavigatedThisWheelChain = true;
             lastWheelNavTime = nowTs;
             const gestureSpeed = Math.min(4200, Math.max(1200, absX * 14));
-            performNavigation(direction, gestureSpeed);
-            if (isDebugRef.current) {
-                console.debug('[TT] wheel navigation trigger', {
-                    direction,
-                    absX,
-                    absY,
-                    gestureSpeed,
-                    samples: recentWheelEvents.length,
-                });
+            
+            // Check if we're in focused day mode
+            if (focusedDayRef.current) {
+                // Use day navigation instead of week navigation
+                performDayNavigation(direction);
+                if (isDebugRef.current) {
+                    console.debug('[TT] wheel day navigation trigger', {
+                        direction,
+                        focusedDay: focusedDayRef.current,
+                        absX,
+                        absY,
+                        samples: recentWheelEvents.length,
+                    });
+                }
+            } else {
+                // Standard week navigation
+                performNavigation(direction, gestureSpeed);
+                if (isDebugRef.current) {
+                    console.debug('[TT] wheel week navigation trigger', {
+                        direction,
+                        absX,
+                        absY,
+                        gestureSpeed,
+                        samples: recentWheelEvents.length,
+                    });
+                }
             }
         };
 
