@@ -71,3 +71,39 @@ export function getISOWeekNumber(date: Date): number {
     // Week number = floor(days / 7) + 1
     return Math.floor(diffInDays / 7) + 1;
 }
+
+/**
+ * Get the next workday (Monday-Friday) from a given date.
+ * If the current day is Friday, returns Monday of the next week.
+ */
+export function getNextWorkday(date: Date): Date {
+    const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    
+    if (dayOfWeek === 0) { // Sunday -> Monday
+        return addDays(date, 1);
+    } else if (dayOfWeek === 6) { // Saturday -> Monday
+        return addDays(date, 2);
+    } else if (dayOfWeek === 5) { // Friday -> Monday of next week
+        return addDays(date, 3);
+    } else { // Monday-Thursday -> next day
+        return addDays(date, 1);
+    }
+}
+
+/**
+ * Get the previous workday (Monday-Friday) from a given date.
+ * If the current day is Monday, returns Friday of the previous week.
+ */
+export function getPreviousWorkday(date: Date): Date {
+    const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    
+    if (dayOfWeek === 0) { // Sunday -> Friday
+        return addDays(date, -2);
+    } else if (dayOfWeek === 6) { // Saturday -> Friday
+        return addDays(date, -1);
+    } else if (dayOfWeek === 1) { // Monday -> Friday of previous week
+        return addDays(date, -3);
+    } else { // Tuesday-Friday -> previous day
+        return addDays(date, -1);
+    }
+}

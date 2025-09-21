@@ -13,6 +13,8 @@ import {
     yyyymmddToISO,
     fmtHM,
     untisToMinutes,
+    getNextWorkday,
+    getPreviousWorkday,
 } from '../utils/dates';
 import { setLessonColor } from '../api';
 import { isMobileViewport } from '../utils/responsive';
@@ -595,6 +597,8 @@ export default function Timetable({
     const axisWidthRef = useRef(axisWidth);
     const onWeekNavigateRef = useRef(onWeekNavigate);
     const onRefreshRef = useRef(onRefresh);
+    const focusedDayRef = useRef(focusedDay);
+    const weekStartRef = useRef(weekStart);
     const isDebugRef = useRef(false);
     isDebugRef.current = isDebug; // recompute each render
 
@@ -628,6 +632,12 @@ export default function Timetable({
     useEffect(() => {
         onRefreshRef.current = onRefresh;
     }, [onRefresh]);
+    useEffect(() => {
+        focusedDayRef.current = focusedDay;
+    }, [focusedDay]);
+    useEffect(() => {
+        weekStartRef.current = weekStart;
+    }, [weekStart]);
 
     // Lifecycle reset: when page/tab is hidden or app backgrounded (PWA iOS), ensure we reset drag/animation state
     const [forceGestureReattach, setForceGestureReattach] = useState(0);
@@ -867,6 +877,56 @@ export default function Timetable({
             lastMoveTimeRef.current = performance.now();
         };
 
+        const performDayNavigation = (direction: 'prev' | 'next') => {
+            if (isAnimatingRef.current) {
+                return;
+            }
+            
+            const currentFocusedDay = focusedDayRef.current;
+            if (!currentFocusedDay) {
+                // If not in focused day mode, fallback to week navigation
+                return performNavigation(direction);
+            }
+            
+            const currentDate = new Date(currentFocusedDay);
+            let targetDate: Date;
+            
+            if (direction === 'next') {
+                targetDate = getNextWorkday(currentDate);
+            } else {
+                targetDate = getPreviousWorkday(currentDate);
+            }
+            
+            const targetDateStr = fmtLocal(targetDate);
+            
+            // Check if we need to change weeks
+            const currentWeek = startOfWeek(currentDate);
+            const targetWeek = startOfWeek(targetDate);
+            const needsWeekChange = fmtLocal(currentWeek) !== fmtLocal(targetWeek);
+            
+            if (needsWeekChange) {
+                // Navigate to the new week first using the parent's navigation handler
+                const weekDirection = fmtLocal(targetWeek) > fmtLocal(currentWeek) ? 'next' : 'prev';
+                onWeekNavigateRef.current?.(weekDirection);
+                // Set focused day to the target date after a brief delay to let the week change
+                setTimeout(() => {
+                    setFocusedDay(targetDateStr);
+                }, 50);
+            } else {
+                // Stay in the same week, just change the focused day
+                setFocusedDay(targetDateStr);
+            }
+            
+            if (isDebugRef.current) {
+                console.debug('[TT] day navigation', {
+                    direction,
+                    from: currentFocusedDay,
+                    to: targetDateStr,
+                    needsWeekChange
+                });
+            }
+        };
+
         const performNavigation = (
             direction: 'prev' | 'next',
             userVelocityPxPerSec?: number
@@ -1097,26 +1157,39 @@ export default function Timetable({
             );
 
             if (navigation.shouldNavigate && navigation.direction) {
-                // Compute fling velocity using last segment vs touch start for fallback
-                let velocity = flingVelocityRef.current;
-                if (
-                    !velocity &&
-                    lastMoveXRef.current != null &&
-                    lastMoveTimeRef.current != null &&
-                    touchStartX.current != null &&
-                    touchStartTime.current != null
-                ) {
-                    const dtTotal =
-                        (performance.now() - touchStartTime.current) / 1000; // s
-                    const dxTotal = lastMoveXRef.current - touchStartX.current; // px
-                    if (dtTotal > 0) velocity = Math.abs(dxTotal / dtTotal); // px/s
-                }
-                performNavigation(navigation.direction, velocity);
-                if (isDebugRef.current) {
-                    console.debug('[TT] touch navigation trigger', {
-                        direction: navigation.direction,
-                        velocity,
-                    });
+                // Check if we're in focused day mode
+                if (focusedDayRef.current) {
+                    // Use day navigation instead of week navigation
+                    performDayNavigation(navigation.direction);
+                    if (isDebugRef.current) {
+                        console.debug('[TT] day navigation trigger', {
+                            direction: navigation.direction,
+                            focusedDay: focusedDayRef.current,
+                        });
+                    }
+                } else {
+                    // Standard week navigation
+                    // Compute fling velocity using last segment vs touch start for fallback
+                    let velocity = flingVelocityRef.current;
+                    if (
+                        !velocity &&
+                        lastMoveXRef.current != null &&
+                        lastMoveTimeRef.current != null &&
+                        touchStartX.current != null &&
+                        touchStartTime.current != null
+                    ) {
+                        const dtTotal =
+                            (performance.now() - touchStartTime.current) / 1000; // s
+                        const dxTotal = lastMoveXRef.current - touchStartX.current; // px
+                        if (dtTotal > 0) velocity = Math.abs(dxTotal / dtTotal); // px/s
+                    }
+                    performNavigation(navigation.direction, velocity);
+                    if (isDebugRef.current) {
+                        console.debug('[TT] week navigation trigger', {
+                            direction: navigation.direction,
+                            velocity,
+                        });
+                    }
                 }
             } else {
                 // Snap back to current position
@@ -1228,15 +1301,32 @@ export default function Timetable({
             hasNavigatedThisWheelChain = true;
             lastWheelNavTime = nowTs;
             const gestureSpeed = Math.min(4200, Math.max(1200, absX * 14));
-            performNavigation(direction, gestureSpeed);
-            if (isDebugRef.current) {
-                console.debug('[TT] wheel navigation trigger', {
-                    direction,
-                    absX,
-                    absY,
-                    gestureSpeed,
-                    samples: recentWheelEvents.length,
-                });
+            
+            // Check if we're in focused day mode
+            if (focusedDayRef.current) {
+                // Use day navigation instead of week navigation
+                performDayNavigation(direction);
+                if (isDebugRef.current) {
+                    console.debug('[TT] wheel day navigation trigger', {
+                        direction,
+                        focusedDay: focusedDayRef.current,
+                        absX,
+                        absY,
+                        samples: recentWheelEvents.length,
+                    });
+                }
+            } else {
+                // Standard week navigation
+                performNavigation(direction, gestureSpeed);
+                if (isDebugRef.current) {
+                    console.debug('[TT] wheel week navigation trigger', {
+                        direction,
+                        absX,
+                        absY,
+                        gestureSpeed,
+                        samples: recentWheelEvents.length,
+                    });
+                }
             }
         };
 
