@@ -44,6 +44,10 @@ export function DetailsModal({
                 return 'New Users Today';
             case 'session_duration_top':
                 return 'Top Avg Session Duration (Today)';
+            case 'most_active_7_days':
+                return '🏆 Most Active Users (Last 7 Days) — Full Rankings';
+            case 'most_active_all_time':
+                return '🌟 Most Active Users (All Time) — Full Rankings';
             default:
                 return 'Details';
         }
@@ -75,13 +79,22 @@ export function DetailsModal({
                         </div>
                     ) : (
                         <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {items.map((it) => (
+                            {items.map((it, index) => (
                                 <li
                                     key={it.userId}
                                     className="py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded px-2 cursor-pointer"
                                     onClick={() => onUserClick?.(it.userId)}
                                 >
                                     <div className="flex items-center gap-3">
+                                        {(metric === 'most_active_7_days' ||
+                                            metric ===
+                                                'most_active_all_time') && (
+                                            <div className="w-8 flex-shrink-0 text-center">
+                                                <div className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                                    #{index + 1}
+                                                </div>
+                                            </div>
+                                        )}
                                         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm">
                                             {(it.displayName || it.username)
                                                 .charAt(0)
@@ -118,13 +131,25 @@ export function DetailsModal({
                                                         {it.count}
                                                     </div>
                                                 )}
-                                                <div className="text-xs text-slate-500 dark:text-slate-400">
-                                                    {it.lastAt
-                                                        ? new Date(
-                                                              it.lastAt
-                                                          ).toLocaleTimeString()
-                                                        : ''}
-                                                </div>
+                                                {(metric === 'most_active_7_days' ||
+                                                    metric ===
+                                                        'most_active_all_time') && (
+                                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                        activities
+                                                    </div>
+                                                )}
+                                                {metric !==
+                                                    'most_active_7_days' &&
+                                                    metric !==
+                                                        'most_active_all_time' && (
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {it.lastAt
+                                                                ? new Date(
+                                                                      it.lastAt
+                                                                  ).toLocaleTimeString()
+                                                                : ''}
+                                                        </div>
+                                                    )}
                                             </>
                                         )}
                                     </div>

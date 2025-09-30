@@ -29,6 +29,13 @@ export interface UserEngagementMetrics {
         activityCount: number;
         lastActivity: Date;
     }>;
+    mostActiveUsersAllTime: Array<{
+        userId: string;
+        username: string;
+        displayName: string | null;
+        activityCount: number;
+        lastActivity: Date;
+    }>;
     userGrowthTrend: Array<{
         date: string;
         newUsers: number;
@@ -64,7 +71,10 @@ export type AnalyticsDetailMetric =
     | 'searches_today'
     | 'new_users_today'
     // Top users by average session duration today (derived)
-    | 'session_duration_top';
+    | 'session_duration_top'
+    // Leaderboards
+    | 'most_active_7_days'
+    | 'most_active_all_time';
 
 export interface AnalyticsDetailItem {
     userId: string;
