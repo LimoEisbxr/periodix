@@ -194,6 +194,72 @@ export async function getAnalyticsDetails(
             });
             return { metric, items };
         }
+        case 'most_active_7_days': {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const allUsers = await (prisma as any).user.findMany({
+                select: {
+                    id: true,
+                    username: true,
+                    displayName: true,
+                    activities: {
+                        where: { createdAt: { gte: sevenDaysAgo } },
+                        select: { createdAt: true },
+                    },
+                },
+            });
+            const items: AnalyticsDetailItem[] = allUsers
+                .map((user: any) => ({
+                    userId: user.id,
+                    username: user.username,
+                    displayName: user.displayName,
+                    count: user.activities.length,
+                    lastAt: user.activities.length
+                        ? new Date(
+                              Math.max(
+                                  ...user.activities.map((a: any) =>
+                                      new Date(a.createdAt).getTime()
+                                  )
+                              )
+                          )
+                        : undefined,
+                }))
+                .filter((u: any) => u.count > 0)
+                .sort((a: any, b: any) => (b.count || 0) - (a.count || 0));
+            return { metric, items };
+        }
+        case 'most_active_all_time': {
+            const allUsers = await (prisma as any).user.findMany({
+                select: {
+                    id: true,
+                    username: true,
+                    displayName: true,
+                    activities: {
+                        select: { createdAt: true },
+                    },
+                },
+            });
+            const items: AnalyticsDetailItem[] = allUsers
+                .map((user: any) => ({
+                    userId: user.id,
+                    username: user.username,
+                    displayName: user.displayName,
+                    count: user.activities.length,
+                    lastAt: user.activities.length
+                        ? new Date(
+                              Math.max(
+                                  ...user.activities.map((a: any) =>
+                                      new Date(a.createdAt).getTime()
+                                  )
+                              )
+                          )
+                        : undefined,
+                }))
+                .filter((u: any) => u.count > 0)
+                .sort((a: any, b: any) => (b.count || 0) - (a.count || 0));
+            return { metric, items };
+        }
         default:
             return { metric, items: [] };
     }

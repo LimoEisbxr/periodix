@@ -16,8 +16,6 @@ export async function getUserEngagementMetrics(): Promise<UserEngagementMetrics>
                 select: { createdAt: true },
             },
         },
-        orderBy: { activities: { _count: 'desc' } },
-        take: 10,
     });
     const processedActiveUsers = mostActiveUsers
         .map((user: any) => ({
@@ -35,7 +33,39 @@ export async function getUserEngagementMetrics(): Promise<UserEngagementMetrics>
                   )
                 : new Date(0),
         }))
-        .filter((u: any) => u.activityCount > 0);
+        .filter((u: any) => u.activityCount > 0)
+        .sort((a: any, b: any) => b.activityCount - a.activityCount)
+        .slice(0, 10);
+
+    const mostActiveUsersAllTime = await (prisma as any).user.findMany({
+        select: {
+            id: true,
+            username: true,
+            displayName: true,
+            activities: {
+                select: { createdAt: true },
+            },
+        },
+    });
+    const processedActiveUsersAllTime = mostActiveUsersAllTime
+        .map((user: any) => ({
+            userId: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            activityCount: user.activities.length,
+            lastActivity: user.activities.length
+                ? new Date(
+                      Math.max(
+                          ...user.activities.map((a: any) =>
+                              new Date(a.createdAt).getTime()
+                          )
+                      )
+                  )
+                : new Date(0),
+        }))
+        .filter((u: any) => u.activityCount > 0)
+        .sort((a: any, b: any) => b.activityCount - a.activityCount)
+        .slice(0, 10);
 
     const dailyUserStats = await (prisma as any).dailyStats.findMany({
         where: { date: { gte: getLocalDayRange(-30).dateKey } },
@@ -52,6 +82,7 @@ export async function getUserEngagementMetrics(): Promise<UserEngagementMetrics>
 
     return {
         mostActiveUsers: processedActiveUsers,
+        mostActiveUsersAllTime: processedActiveUsersAllTime,
         userGrowthTrend,
         retentionRate,
     };

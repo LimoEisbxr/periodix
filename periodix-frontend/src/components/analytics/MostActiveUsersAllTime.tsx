@@ -1,6 +1,6 @@
 import type { UserEngagementMetrics } from '../../api';
 
-export function MostActiveUsers({
+export function MostActiveUsersAllTime({
     engagement,
     onUserClick,
     onViewAll,
@@ -13,7 +13,7 @@ export function MostActiveUsers({
         <div className="card p-6">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-slate-900 dark:text-slate-100">
-                    🏆 Most Active Users (Last 7 Days)
+                    🌟 Most Active Users (All Time)
                 </h3>
                 {onViewAll && (
                     <button
@@ -26,7 +26,9 @@ export function MostActiveUsers({
                 )}
             </div>
             <div className="space-y-3">
-                {engagement?.mostActiveUsers.slice(0, 8).map((user) => (
+                {engagement?.mostActiveUsersAllTime
+                    .slice(0, 8)
+                    .map((user) => (
                     <div
                         key={user.userId}
                         className="flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded px-2 py-1 cursor-pointer"
@@ -34,7 +36,7 @@ export function MostActiveUsers({
                         title="View user analytics"
                     >
                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white font-semibold text-sm">
                                 {(user.displayName || user.username)
                                     .charAt(0)
                                     .toUpperCase()}

@@ -5,6 +5,7 @@ import { ActivityByHourChart } from './analytics/ActivityByHourChart.tsx';
 import { UserGrowthChart } from './analytics/UserGrowthChart.tsx';
 import { FeatureUsageList } from './analytics/FeatureUsageList.tsx';
 import { MostActiveUsers } from './analytics/MostActiveUsers.tsx';
+import { MostActiveUsersAllTime } from './analytics/MostActiveUsersAllTime.tsx';
 import { UsageInsights } from './analytics/UsageInsights.tsx';
 import { DetailsModal } from './analytics/DetailsModal.tsx';
 import { UserInsightModal } from './analytics/UserInsightModal.tsx';
@@ -165,6 +166,14 @@ export default function AnalyticsTab({ token }: { token: string }) {
                     <MostActiveUsers
                         engagement={state.engagementMetrics}
                         onUserClick={openUserInsight}
+                        onViewAll={() => openDetails('most_active_7_days')}
+                    />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <MostActiveUsersAllTime
+                        engagement={state.engagementMetrics}
+                        onUserClick={openUserInsight}
+                        onViewAll={() => openDetails('most_active_all_time')}
                     />
                 </div>
                 <UsageInsights
