@@ -23,6 +23,8 @@ const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // Run pruning at most every 6h 
 
 let lastCleanupRun = 0; // In‑memory marker; acceptable for single process / ephemeral scaling
 
+type TimetableFallbackReason = 'UNTIS_UNAVAILABLE' | 'BAD_CREDENTIALS';
+
 function startOfDay(d: Date) {
     const nd = new Date(d);
     nd.setHours(0, 0, 0, 0);
@@ -122,6 +124,81 @@ async function getCachedRange(ownerId: string, start: Date, end: Date) {
         },
         orderBy: { createdAt: 'desc' },
     });
+}
+
+async function getLatestCachedTimetable(args: {
+    ownerId: string;
+    start?: Date | null;
+    end?: Date | null;
+}) {
+    const { ownerId, start, end } = args;
+    const primaryWhere: Prisma.TimetableWhereInput = {
+        ownerId,
+    };
+
+    if (start && end) {
+        primaryWhere.rangeStart = start;
+        primaryWhere.rangeEnd = end;
+    } else if (start || end) {
+        if (start) primaryWhere.rangeStart = start;
+        if (end) primaryWhere.rangeEnd = end;
+    } else {
+        primaryWhere.rangeStart = { equals: null };
+        primaryWhere.rangeEnd = { equals: null };
+    }
+
+    let record = await prisma.timetable.findFirst({
+        where: primaryWhere,
+        orderBy: { createdAt: 'desc' },
+    });
+
+    if (!record) {
+        record = await prisma.timetable.findFirst({
+            where: { ownerId },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    return record;
+}
+
+function shouldFallbackToCache(error: AppError): boolean {
+    const code = String(error.code ?? '').toUpperCase();
+    return (
+        code === 'UNTIS_LOGIN_FAILED' ||
+        code === 'UNTIS_FETCH_FAILED' ||
+        code === 'BAD_CREDENTIALS'
+    );
+}
+
+function serializeTimetableResponse(payload: {
+    userId: string;
+    rangeStart?: Date | null;
+    rangeEnd?: Date | null;
+    data: any;
+    cached: boolean;
+    stale: boolean;
+    lastUpdated?: Date | null | undefined;
+    fallbackReason?: TimetableFallbackReason | undefined;
+    errorCode?: string | number | undefined;
+    errorMessage?: string | undefined;
+}) {
+    const { userId, rangeStart, rangeEnd, data, cached, stale } = payload;
+    return {
+        userId,
+        rangeStart: rangeStart ? rangeStart.toISOString() : null,
+        rangeEnd: rangeEnd ? rangeEnd.toISOString() : null,
+        payload: data,
+        cached,
+        stale,
+        source: cached ? 'cache' : 'live',
+        lastUpdated: payload.lastUpdated
+            ? payload.lastUpdated.toISOString()
+            : null,
+        fallbackReason: payload.fallbackReason,
+        errorCode: payload.errorCode,
+        errorMessage: payload.errorMessage,
+    };
 }
 
 async function fetchAndStoreUntis(args: {
@@ -332,16 +409,28 @@ async function fetchAndStoreUntis(args: {
         })(),
     });
 
-    await prisma.timetable.create({
+    const record = await prisma.timetable.create({
         data: {
             ownerId: target.id,
             payload,
             rangeStart,
             rangeEnd,
         },
+        select: {
+            rangeStart: true,
+            rangeEnd: true,
+            payload: true,
+            createdAt: true,
+        },
     });
 
-    return { userId: target.id, rangeStart, rangeEnd, payload };
+    return {
+        userId: target.id,
+        rangeStart: record.rangeStart,
+        rangeEnd: record.rangeEnd,
+        payload: record.payload,
+        createdAt: record.createdAt,
+    };
 }
 
 // Host is fixed via env. Keep helper for future flexibility.
@@ -388,13 +477,15 @@ export async function getOrFetchTimetableRange(args: {
             console.warn('[timetable] cache lookup failed', e);
         }
         if (cached) {
-            return {
+            return serializeTimetableResponse({
                 userId: target.id,
                 rangeStart: cached.rangeStart,
                 rangeEnd: cached.rangeEnd,
-                payload: cached.payload,
+                data: cached.payload,
                 cached: true,
-            };
+                stale: false,
+                lastUpdated: cached.createdAt,
+            });
         }
     } else {
         // Range not provided: treat as 'today', define single-day normalization
@@ -402,7 +493,45 @@ export async function getOrFetchTimetableRange(args: {
         if (args.end) ed = endOfDay(new Date(args.end));
     }
 
-    const fresh = await fetchAndStoreUntis({ target, sd, ed });
+    let fresh;
+    try {
+        fresh = await fetchAndStoreUntis({ target, sd, ed });
+    } catch (err: any) {
+        if (err instanceof AppError && shouldFallbackToCache(err)) {
+            const fallback = await getLatestCachedTimetable({
+                ownerId: target.id,
+                start: sd ?? null,
+                end: ed ?? null,
+            });
+            if (fallback) {
+                console.warn(
+                    '[timetable] serving cached timetable due to error',
+                    {
+                        userId: target.id,
+                        code: err.code,
+                        message: err.message,
+                    }
+                );
+                const fallbackReason: TimetableFallbackReason =
+                    String(err.code ?? '').toUpperCase() === 'BAD_CREDENTIALS'
+                        ? 'BAD_CREDENTIALS'
+                        : 'UNTIS_UNAVAILABLE';
+                return serializeTimetableResponse({
+                    userId: target.id,
+                    rangeStart: fallback.rangeStart,
+                    rangeEnd: fallback.rangeEnd,
+                    data: fallback.payload,
+                    cached: true,
+                    stale: true,
+                    lastUpdated: fallback.createdAt,
+                    fallbackReason,
+                    errorCode: err.code,
+                    errorMessage: err.message,
+                });
+            }
+        }
+        throw err;
+    }
 
     // Fire & forget adjacent week prefetch if week context present
     if (sd && ed) {
@@ -433,7 +562,15 @@ export async function getOrFetchTimetableRange(args: {
         }, 5); // slight delay to avoid blocking response
     }
 
-    return fresh;
+    return serializeTimetableResponse({
+        userId: fresh.userId,
+        rangeStart: fresh.rangeStart,
+        rangeEnd: fresh.rangeEnd,
+        data: fresh.payload,
+        cached: false,
+        stale: false,
+        lastUpdated: fresh.createdAt,
+    });
 }
 
 export async function verifyUntisCredentials(
@@ -468,19 +605,21 @@ export async function getUserClassInfo(
     const school = UNTIS_DEFAULT_SCHOOL;
     const host = UNTIS_HOST;
     const untis = new WebUntis(school, username, password, host) as any;
-    
+
     try {
         await untis.login();
-        
+
         // Try to get user's classes/grades
         let classes: string[] = [];
-        
+
         try {
             // Get current user info which might include class information
             if (typeof untis.getOwnClassesList === 'function') {
                 const classList = await untis.getOwnClassesList();
-                classes = Array.isArray(classList) 
-                    ? classList.map((c: any) => c.name || c.longName || String(c)).filter(Boolean)
+                classes = Array.isArray(classList)
+                    ? classList
+                          .map((c: any) => c.name || c.longName || String(c))
+                          .filter(Boolean)
                     : [];
             } else if (typeof untis.getOwnStudentId === 'function') {
                 // Alternative approach: get student info
@@ -488,15 +627,23 @@ export async function getUserClassInfo(
                 if (studentId && typeof untis.getStudent === 'function') {
                     const student = await untis.getStudent(studentId);
                     if (student?.klasse) {
-                        classes = Array.isArray(student.klasse) 
-                            ? student.klasse.map((k: any) => k.name || k.longName || String(k)).filter(Boolean)
+                        classes = Array.isArray(student.klasse)
+                            ? student.klasse
+                                  .map(
+                                      (k: any) =>
+                                          k.name || k.longName || String(k)
+                                  )
+                                  .filter(Boolean)
                             : [String(student.klasse)];
                     }
                 }
             }
-            
+
             // If we still don't have classes, try to get them from the general classes list
-            if (classes.length === 0 && typeof untis.getClasses === 'function') {
+            if (
+                classes.length === 0 &&
+                typeof untis.getClasses === 'function'
+            ) {
                 const allClasses = await untis.getClasses();
                 if (Array.isArray(allClasses)) {
                     // This is a fallback - we can't determine user's specific class this way
@@ -505,14 +652,17 @@ export async function getUserClassInfo(
                 }
             }
         } catch (e: any) {
-            console.warn('[whitelist] failed to get user class info', e?.message);
+            console.warn(
+                '[whitelist] failed to get user class info',
+                e?.message
+            );
             classes = [];
         }
-        
+
         try {
             await untis.logout?.();
         } catch {}
-        
+
         return classes;
     } catch (e: any) {
         const msg = e?.message || '';
@@ -660,13 +810,20 @@ async function enrichLessonsWithHomeworkAndExams(
     const subjectMatches = (hwSubject: string, lessonSubject: string) => {
         if (!hwSubject || !lessonSubject) return false;
         // Normalize subject names for comparison (case insensitive, trim whitespace)
-        return hwSubject.toLowerCase().trim() === lessonSubject.toLowerCase().trim();
+        return (
+            hwSubject.toLowerCase().trim() ===
+            lessonSubject.toLowerCase().trim()
+        );
     };
 
     // Helper to check if homework date is within a reasonable range of lesson date
-    const dateWithinRange = (hwDate: number, lessonDate: number, dayRange: number = 7) => {
+    const dateWithinRange = (
+        hwDate: number,
+        lessonDate: number,
+        dayRange: number = 7
+    ) => {
         if (hwDate === lessonDate) return true;
-        
+
         // Convert YYYYMMDD to Date objects for comparison
         const hwDateObj = new Date(
             Math.floor(hwDate / 10000),
@@ -678,7 +835,7 @@ async function enrichLessonsWithHomeworkAndExams(
             Math.floor((lessonDate % 10000) / 100) - 1,
             lessonDate % 100
         );
-        
+
         const diffMs = Math.abs(hwDateObj.getTime() - lessonDateObj.getTime());
         const diffDays = diffMs / (1000 * 60 * 60 * 24);
         return diffDays <= dayRange;
@@ -688,25 +845,27 @@ async function enrichLessonsWithHomeworkAndExams(
     return lessons.map((lesson) => {
         const subjectName = lesson.su?.[0]?.name;
         const lessonHomework = homework
-            .filter(
-                (hw: any) => {
-                    // Primary matching: homework lessonId matches lesson ID
-                    if (lessonMatchesHw(hw, lesson)) {
+            .filter((hw: any) => {
+                // Primary matching: homework lessonId matches lesson ID
+                if (lessonMatchesHw(hw, lesson)) {
+                    return true;
+                }
+
+                // Secondary matching: subject matches and date is within reasonable range
+                if (
+                    hw.subject &&
+                    subjectName &&
+                    subjectMatches(hw.subject, subjectName)
+                ) {
+                    // Only attach if homework date is within 7 days of lesson date
+                    // This prevents homework from being attached to all lessons of same subject
+                    if (dateWithinRange(hw.date, lesson.date, 7)) {
                         return true;
                     }
-                    
-                    // Secondary matching: subject matches and date is within reasonable range
-                    if (hw.subject && subjectName && subjectMatches(hw.subject, subjectName)) {
-                        // Only attach if homework date is within 7 days of lesson date
-                        // This prevents homework from being attached to all lessons of same subject
-                        if (dateWithinRange(hw.date, lesson.date, 7)) {
-                            return true;
-                        }
-                    }
-                    
-                    return false;
                 }
-            )
+
+                return false;
+            })
             .map((hw: any) => ({
                 id: hw.untisId,
                 lessonId: hw.lessonId,

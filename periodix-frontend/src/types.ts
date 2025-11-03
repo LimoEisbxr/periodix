@@ -8,11 +8,22 @@ export type User = {
     timezone?: string; // IANA timezone identifier
 };
 
+export type TimetableFallbackReason = 'UNTIS_UNAVAILABLE' | 'BAD_CREDENTIALS';
+
+export type TimetableSource = 'live' | 'cache';
+
 export type TimetableResponse = {
     userId: string;
     rangeStart: string | null;
     rangeEnd: string | null;
     payload: unknown;
+    cached?: boolean;
+    stale?: boolean;
+    source?: TimetableSource;
+    lastUpdated?: string | null;
+    fallbackReason?: TimetableFallbackReason;
+    errorCode?: string | number;
+    errorMessage?: string;
 };
 
 export type Lesson = {

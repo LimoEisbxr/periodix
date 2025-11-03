@@ -39,7 +39,15 @@ import type {
     LessonColors,
     LessonOffsets,
     Notification,
+    TimetableFallbackReason,
 } from '../types';
+
+type FallbackNoticeState = {
+    reason: TimetableFallbackReason | 'UNKNOWN';
+    lastUpdated?: string | null;
+    errorCode?: string | number;
+    errorMessage?: string;
+};
 
 export default function Dashboard({
     token,
@@ -97,10 +105,27 @@ export default function Dashboard({
     const [defaultLessonColors, setDefaultLessonColors] =
         useState<LessonColors>({});
     const [lessonOffsets, setLessonOffsets] = useState<LessonOffsets>({});
+    const [fallbackNotice, setFallbackNotice] =
+        useState<FallbackNoticeState | null>(null);
+    const fallbackDismissedRef = useRef<Set<string>>(new Set());
+    const fallbackKeyRef = useRef<string | null>(null);
 
     // Initialize timetable cache hook
     const { getTimetableData, getCachedData, invalidateCache } =
         useTimetableCache();
+
+    const formatTimestamp = useCallback((iso?: string | null) => {
+        if (!iso) return null;
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return null;
+        return date.toLocaleString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    }, []);
 
     // Compute the week range based on the selected date
     const weekStartDate = useMemo(() => startOfWeek(new Date(start)), [start]);
@@ -173,6 +198,32 @@ export default function Dashboard({
         () => getISOWeekNumber(weekStartDate),
         [weekStartDate]
     );
+
+    const fallbackBannerTimestamp = useMemo(
+        () => formatTimestamp(mine?.lastUpdated),
+        [mine?.lastUpdated, formatTimestamp]
+    );
+
+    const fallbackBannerMessage = useMemo(() => {
+        if (!mine?.cached || !mine?.stale) return null;
+        if (mine.fallbackReason === 'BAD_CREDENTIALS') {
+            return 'Untis reported invalid credentials. If you recently changed your Untis password, please update it in Settings.';
+        }
+        return 'Untis did not respond. Their servers might be offline or your Untis password may have changed. We will refresh automatically once Untis is reachable.';
+    }, [mine]);
+
+    const fallbackNoticeTimestamp = useMemo(
+        () => formatTimestamp(fallbackNotice?.lastUpdated || null),
+        [fallbackNotice?.lastUpdated, formatTimestamp]
+    );
+
+    const fallbackModalMessage = useMemo(() => {
+        if (!fallbackNotice) return null;
+        if (fallbackNotice.reason === 'BAD_CREDENTIALS') {
+            return 'Untis rejected the stored credentials. If you recently changed your Untis password, update it in Settings → Timetable. We loaded the most recent cached timetable so you can keep working.';
+        }
+        return 'Untis did not respond. The official servers might be offline or your Untis password may have changed. We loaded the most recent cached timetable so you can keep working and will refresh automatically once Untis responds.';
+    }, [fallbackNotice]);
 
     const loadMine = useCallback(async () => {
         setLoadError(null);
@@ -297,6 +348,39 @@ export default function Dashboard({
             loadUser(selectedUser.id);
         else loadMine();
     }, [loadUser, loadMine, selectedUser, user.id]);
+
+    useEffect(() => {
+        if (!mine) {
+            fallbackKeyRef.current = null;
+            setFallbackNotice(null);
+            return;
+        }
+        if (mine.cached && mine.stale) {
+            const key = [
+                mine.userId,
+                mine.rangeStart ?? '',
+                mine.rangeEnd ?? '',
+                mine.lastUpdated ?? '',
+                mine.fallbackReason ?? 'UNKNOWN',
+            ].join('|');
+            fallbackKeyRef.current = key;
+            if (!fallbackDismissedRef.current.has(key)) {
+                setFallbackNotice({
+                    reason:
+                        (mine.fallbackReason as
+                            | TimetableFallbackReason
+                            | undefined) ?? 'UNKNOWN',
+                    lastUpdated: mine.lastUpdated,
+                    errorCode: mine.errorCode,
+                    errorMessage: mine.errorMessage,
+                });
+            }
+        } else {
+            fallbackKeyRef.current = null;
+            setFallbackNotice(null);
+            fallbackDismissedRef.current.clear();
+        }
+    }, [mine]);
 
     // Load user's lesson colors
     useEffect(() => {
@@ -462,6 +546,18 @@ export default function Dashboard({
             await loadMine();
         }
     }, [invalidateCache, selectedUser, user.id, loadUser, loadMine]);
+
+    const handleDismissFallback = useCallback(() => {
+        if (fallbackKeyRef.current) {
+            fallbackDismissedRef.current.add(fallbackKeyRef.current);
+        }
+        setFallbackNotice(null);
+    }, []);
+
+    const handleOpenSettingsFromFallback = useCallback(() => {
+        handleDismissFallback();
+        setIsSettingsModalOpen(true);
+    }, [handleDismissFallback]);
 
     // Load notifications
     const loadNotifications = useCallback(async () => {
@@ -1164,6 +1260,27 @@ export default function Dashboard({
                             </div>
                         ) : null}
 
+                        {mine?.cached && mine?.stale && (
+                            <div className="mb-3 rounded-md border border-indigo-300 bg-indigo-50 p-3 text-indigo-800 dark:border-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-200">
+                                <div className="flex flex-col gap-1">
+                                    <span className="font-medium tracking-tight">
+                                        Showing cached timetable
+                                    </span>
+                                    {fallbackBannerTimestamp && (
+                                        <span className="text-sm opacity-90">
+                                            Last synced{' '}
+                                            {fallbackBannerTimestamp}.
+                                        </span>
+                                    )}
+                                    {fallbackBannerMessage && (
+                                        <span className="text-sm opacity-90">
+                                            {fallbackBannerMessage}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Color change error message */}
                         {colorError && (
                             <div className="mb-3 rounded-md border border-rose-300 bg-rose-50 p-3 text-rose-800 dark:border-rose-700 dark:bg-rose-900/40 dark:text-rose-200">
@@ -1517,6 +1634,83 @@ export default function Dashboard({
                                 </div>
                             );
                         })()}
+                    </div>
+                </div>
+            )}
+
+            {fallbackNotice && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
+                    onClick={handleDismissFallback}
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="cached-timetable-title"
+                >
+                    <div
+                        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-700 p-6 relative"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            onClick={handleDismissFallback}
+                            className="absolute right-3 top-3 rounded-full p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800"
+                            aria-label="Dismiss cached timetable notice"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                            >
+                                <path
+                                    d="M6 6l12 12M6 18L18 6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                />
+                            </svg>
+                        </button>
+                        <h2
+                            id="cached-timetable-title"
+                            className="text-xl font-semibold text-slate-900 dark:text-slate-100"
+                        >
+                            Cached timetable loaded
+                        </h2>
+                        {fallbackModalMessage && (
+                            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                                {fallbackModalMessage}
+                            </p>
+                        )}
+                        {fallbackNoticeTimestamp && (
+                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                Last synced {fallbackNoticeTimestamp}.
+                            </p>
+                        )}
+                        {fallbackNotice.errorMessage && (
+                            <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                                {fallbackNotice.errorMessage}
+                            </p>
+                        )}
+                        {fallbackNotice.errorCode && (
+                            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                Code: {fallbackNotice.errorCode}
+                            </p>
+                        )}
+                        <div className="mt-6 flex flex-wrap justify-end gap-2">
+                            {fallbackNotice.reason === 'BAD_CREDENTIALS' && (
+                                <button
+                                    className="rounded-lg border border-indigo-500 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 dark:hover:bg-indigo-900/40"
+                                    onClick={handleOpenSettingsFromFallback}
+                                >
+                                    Open settings
+                                </button>
+                            )}
+                            <button
+                                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                                onClick={handleDismissFallback}
+                            >
+                                Got it
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
