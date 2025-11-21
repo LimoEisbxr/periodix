@@ -5,6 +5,7 @@ import type {
     LessonColors,
     Homework,
     Exam,
+    Holiday,
 } from '../types';
 import {
     addDays,
@@ -241,6 +242,7 @@ function mergeLessons(lessons: Lesson[]): Lesson[] {
 
 export default function Timetable({
     data,
+    holidays = [],
     weekStart,
     lessonColors = {},
     defaultLessonColors = {},
@@ -254,8 +256,10 @@ export default function Timetable({
     onLessonModalStateChange,
     isOnboardingActive,
     onRefresh,
+    isRateLimited,
 }: {
     data: TimetableResponse | null;
+    holidays?: Holiday[];
     weekStart: Date;
     lessonColors?: LessonColors;
     defaultLessonColors?: LessonColors;
@@ -275,6 +279,7 @@ export default function Timetable({
     onLessonModalStateChange?: (isOpen: boolean) => void; // callback for onboarding
     isOnboardingActive?: boolean;
     onRefresh?: () => Promise<void>; // callback for pull-to-refresh
+    isRateLimited?: boolean;
     // Extended: allow passing current offset when color set
     // (so initial color creation can persist chosen offset)
     // Keeping backwards compatibility (third param optional)
@@ -881,32 +886,36 @@ export default function Timetable({
             if (isAnimatingRef.current) {
                 return;
             }
-            
+
             const currentFocusedDay = focusedDayRef.current;
             if (!currentFocusedDay) {
                 // If not in focused day mode, fallback to week navigation
                 return performNavigation(direction);
             }
-            
+
             const currentDate = new Date(currentFocusedDay);
             let targetDate: Date;
-            
+
             if (direction === 'next') {
                 targetDate = getNextWorkday(currentDate);
             } else {
                 targetDate = getPreviousWorkday(currentDate);
             }
-            
+
             const targetDateStr = fmtLocal(targetDate);
-            
+
             // Check if we need to change weeks
             const currentWeek = startOfWeek(currentDate);
             const targetWeek = startOfWeek(targetDate);
-            const needsWeekChange = fmtLocal(currentWeek) !== fmtLocal(targetWeek);
-            
+            const needsWeekChange =
+                fmtLocal(currentWeek) !== fmtLocal(targetWeek);
+
             if (needsWeekChange) {
                 // Navigate to the new week first using the parent's navigation handler
-                const weekDirection = fmtLocal(targetWeek) > fmtLocal(currentWeek) ? 'next' : 'prev';
+                const weekDirection =
+                    fmtLocal(targetWeek) > fmtLocal(currentWeek)
+                        ? 'next'
+                        : 'prev';
                 onWeekNavigateRef.current?.(weekDirection);
                 // Set focused day to the target date after a brief delay to let the week change
                 setTimeout(() => {
@@ -916,13 +925,13 @@ export default function Timetable({
                 // Stay in the same week, just change the focused day
                 setFocusedDay(targetDateStr);
             }
-            
+
             if (isDebugRef.current) {
                 console.debug('[TT] day navigation', {
                     direction,
                     from: currentFocusedDay,
                     to: targetDateStr,
-                    needsWeekChange
+                    needsWeekChange,
                 });
             }
         };
@@ -1180,7 +1189,8 @@ export default function Timetable({
                     ) {
                         const dtTotal =
                             (performance.now() - touchStartTime.current) / 1000; // s
-                        const dxTotal = lastMoveXRef.current - touchStartX.current; // px
+                        const dxTotal =
+                            lastMoveXRef.current - touchStartX.current; // px
                         if (dtTotal > 0) velocity = Math.abs(dxTotal / dtTotal); // px/s
                     }
                     performNavigation(navigation.direction, velocity);
@@ -1301,7 +1311,7 @@ export default function Timetable({
             hasNavigatedThisWheelChain = true;
             lastWheelNavTime = nowTs;
             const gestureSpeed = Math.min(4200, Math.max(1200, absX * 14));
-            
+
             // Check if we're in focused day mode
             if (focusedDayRef.current) {
                 // Use day navigation instead of week navigation
@@ -1608,6 +1618,52 @@ export default function Timetable({
         () => Object.values(lessonsByDay).some((arr) => arr.length > 0),
         [lessonsByDay]
     );
+
+    // Check if the whole week is a holiday
+    const weekHolidayInfo = useMemo(() => {
+        if (!holidays.length) return null;
+
+        // Helper to check if a date is a holiday
+        const getHolidayForDate = (d: Date) => {
+            const current = new Date(d);
+            current.setHours(0, 0, 0, 0);
+
+            return holidays.find((h) => {
+                // Parse yyyymmdd number to Date
+                const parseUntisDate = (n: number) => {
+                    const s = String(n);
+                    const y = Number(s.slice(0, 4));
+                    const mo = Number(s.slice(4, 6));
+                    const day = Number(s.slice(6, 8));
+                    return new Date(y, mo - 1, day);
+                };
+
+                const start = parseUntisDate(h.startDate);
+                const end = parseUntisDate(h.endDate);
+                start.setHours(0, 0, 0, 0);
+                end.setHours(0, 0, 0, 0);
+                return current >= start && current <= end;
+            });
+        };
+
+        const dayHolidays = days.map((d) => getHolidayForDate(d));
+        const allDaysAreHolidays = dayHolidays.every((h) => !!h);
+
+        if (!allDaysAreHolidays) return null;
+
+        // Check if it's the same holiday for all days
+        const firstHolidayName = dayHolidays[0]?.name;
+        const isSameHoliday = dayHolidays.every(
+            (h) => h?.name === firstHolidayName
+        );
+
+        return {
+            isFullWeek: true,
+            isSameHoliday,
+            holiday: dayHolidays[0],
+        };
+    }, [days, holidays]);
+
     if (!data)
         return (
             <div className="text-sm text-slate-600 dark:text-slate-300">
@@ -1854,6 +1910,7 @@ export default function Timetable({
                                             day={dayObj}
                                             keyStr={key}
                                             items={items}
+                                            holidays={holidays}
                                             START_MIN={START_MIN}
                                             END_MIN={END_MIN}
                                             SCALE={SCALE}
@@ -1924,6 +1981,7 @@ export default function Timetable({
                                                     day={d}
                                                     keyStr={key}
                                                     items={items}
+                                                    holidays={holidays}
                                                     START_MIN={START_MIN}
                                                     END_MIN={END_MIN}
                                                     SCALE={SCALE}
@@ -2048,6 +2106,7 @@ export default function Timetable({
                                                     day={d}
                                                     keyStr={key}
                                                     items={items}
+                                                    holidays={holidays}
                                                     START_MIN={START_MIN}
                                                     END_MIN={END_MIN}
                                                     SCALE={SCALE}
@@ -2072,17 +2131,49 @@ export default function Timetable({
                                                     isDeveloperMode={
                                                         isDeveloperMode
                                                     }
+                                                    suppressHolidayBanner={
+                                                        weekHolidayInfo?.isSameHoliday
+                                                    }
                                                 />
                                             </div>
                                         );
                                     })}
-                                    {!hasLessons && (
-                                        <div className="absolute inset-0 flex items-center justify-center z-50">
-                                            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
-                                                No timetable for this week.
+                                    {!hasLessons &&
+                                        !weekHolidayInfo?.isFullWeek &&
+                                        !isRateLimited && (
+                                            <div className="absolute inset-0 flex items-center justify-center z-50">
+                                                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
+                                                    No timetable for this week.
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    {weekHolidayInfo?.isSameHoliday &&
+                                        weekHolidayInfo.holiday && (
+                                            <div className="absolute inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+                                                <div className="absolute inset-0 bg-yellow-50/60 dark:bg-yellow-900/30 backdrop-blur-[1px] rounded-xl" />
+                                                <div className="relative bg-white/80 dark:bg-black/40 p-6 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-md text-center">
+                                                    <h3 className="text-xl font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-2">
+                                                        {
+                                                            weekHolidayInfo
+                                                                .holiday
+                                                                .longName
+                                                        }
+                                                    </h3>
+                                                    {weekHolidayInfo.holiday
+                                                        .name !==
+                                                        weekHolidayInfo.holiday
+                                                            .longName && (
+                                                        <p className="text-base font-medium text-yellow-800 dark:text-yellow-200">
+                                                            {
+                                                                weekHolidayInfo
+                                                                    .holiday
+                                                                    .name
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                 </div>
                                 {/* Next Week */}
                                 <div
@@ -2099,6 +2190,7 @@ export default function Timetable({
                                                     day={d}
                                                     keyStr={key}
                                                     items={items}
+                                                    holidays={holidays}
                                                     START_MIN={START_MIN}
                                                     END_MIN={END_MIN}
                                                     SCALE={SCALE}

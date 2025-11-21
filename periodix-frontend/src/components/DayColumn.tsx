@@ -2,7 +2,7 @@ import type { FC, ReactElement } from 'react';
 import { useState, useLayoutEffect, useRef, useEffect } from 'react';
 import FitText from './FitText';
 import EllipsisIcon from './EllipsisIcon';
-import type { Lesson, LessonColors } from '../types';
+import type { Lesson, LessonColors, Holiday } from '../types';
 import { fmtHM, untisToMinutes } from '../utils/dates';
 import { clamp } from '../utils/dates';
 import { generateGradient, getDefaultGradient } from '../utils/colors';
@@ -22,6 +22,7 @@ export type DayColumnProps = {
     day: Date;
     keyStr: string;
     items: Lesson[];
+    holidays: Holiday[];
     START_MIN: number;
     END_MIN: number;
     SCALE: number;
@@ -35,12 +36,14 @@ export type DayColumnProps = {
     hideHeader?: boolean; // suppress built-in header (used when external sticky header is rendered)
     mobileTinyLessonThresholdPx?: number; // threshold for tiny single lessons on mobile (px)
     isDeveloperMode?: boolean; // enables background click JSON popup
+    suppressHolidayBanner?: boolean;
 };
 
 const DayColumn: FC<DayColumnProps> = ({
     day,
     keyStr,
     items,
+    holidays,
     START_MIN,
     END_MIN,
     SCALE,
@@ -54,6 +57,7 @@ const DayColumn: FC<DayColumnProps> = ({
     hideHeader = false,
     mobileTinyLessonThresholdPx = 56,
     isDeveloperMode = false,
+    suppressHolidayBanner = false,
 }) => {
     // Developer JSON modal state
     const [showDayJson, setShowDayJson] = useState(false);
@@ -229,6 +233,25 @@ const DayColumn: FC<DayColumnProps> = ({
     // Track the last bottom pixel per visual column signature to enforce gaps
     const lastBottomByCol: Record<string, number> = {};
 
+    const holiday = holidays.find((h) => {
+        // Parse yyyymmdd number to Date
+        const parseUntisDate = (n: number) => {
+            const s = String(n);
+            const y = Number(s.slice(0, 4));
+            const mo = Number(s.slice(4, 6));
+            const d = Number(s.slice(6, 8));
+            return new Date(y, mo - 1, d);
+        };
+
+        const start = parseUntisDate(h.startDate);
+        const end = parseUntisDate(h.endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
+        const current = new Date(day);
+        current.setHours(0, 0, 0, 0);
+        return current >= start && current <= end;
+    });
+
     return (
         <div
             key={keyStr}
@@ -299,6 +322,25 @@ const DayColumn: FC<DayColumnProps> = ({
                 <div className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden">
                     <div className="absolute inset-0 rounded-xl shadow-[inset_0_0_0_2px_rgba(251,191,36,0.35)]" />
                     <div className="absolute inset-0 rounded-xl bg-gradient-to-b from-amber-200/20 via-amber-200/10 to-transparent dark:from-amber-300/15 dark:via-amber-300/10" />
+                </div>
+            )}
+
+            {/* Holiday Overlay */}
+            {holiday && !suppressHolidayBanner && (
+                <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden rounded-xl">
+                    <div className="absolute inset-0 bg-yellow-50/90 dark:bg-yellow-900/40 backdrop-blur-[2px]" />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
+                        <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-full">
+                            <h3 className="text-base sm:text-lg font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-1">
+                                {holiday.longName}
+                            </h3>
+                            {holiday.name !== holiday.longName && (
+                                <p className="text-xs sm:text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                                    {holiday.name}
+                                </p>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
 

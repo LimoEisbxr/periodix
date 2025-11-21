@@ -19,6 +19,7 @@ import {
     updateNotificationSettings,
     getUserPreferences,
     updateUserPreferences,
+    getHolidays,
 } from '../api';
 import {
     isServiceWorkerSupported,
@@ -40,6 +41,7 @@ import type {
     LessonOffsets,
     Notification,
     TimetableFallbackReason,
+    Holiday,
 } from '../types';
 
 type FallbackNoticeState = {
@@ -105,6 +107,7 @@ export default function Dashboard({
     const [defaultLessonColors, setDefaultLessonColors] =
         useState<LessonColors>({});
     const [lessonOffsets, setLessonOffsets] = useState<LessonOffsets>({});
+    const [holidays, setHolidays] = useState<Holiday[]>([]);
     const [fallbackNotice, setFallbackNotice] =
         useState<FallbackNoticeState | null>(null);
     const fallbackDismissedRef = useRef<Set<string>>(new Set());
@@ -404,6 +407,13 @@ export default function Dashboard({
         };
         loadLessonColors();
         loadDefaults();
+    }, [token]);
+
+    // Load holidays
+    useEffect(() => {
+        getHolidays(token)
+            .then((res) => setHolidays(res.data))
+            .catch((err) => console.error('Failed to load holidays:', err));
     }, [token]);
 
     // Handle lesson color changes
@@ -1305,6 +1315,7 @@ export default function Dashboard({
 
                         <Timetable
                             data={mine}
+                            holidays={holidays}
                             weekStart={weekStartDate}
                             lessonColors={lessonColors}
                             defaultLessonColors={defaultLessonColors}
@@ -1330,6 +1341,7 @@ export default function Dashboard({
                             onLessonModalStateChange={setIsLessonModalOpen}
                             isOnboardingActive={isOnboardingOpen}
                             onRefresh={handleRefresh}
+                            isRateLimited={retrySeconds !== null}
                         />
                     </div>
                 </section>

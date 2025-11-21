@@ -9,6 +9,7 @@ import type {
     Notification,
     NotificationSettings,
     AdminNotificationSettings,
+    Holiday,
 } from './types';
 
 // Global logout handler - will be set by App.tsx
@@ -150,6 +151,10 @@ export async function getLessonColors(
         '/api/lesson-colors/my-colors',
         { token }
     );
+}
+
+export async function getHolidays(token: string): Promise<{ data: Holiday[] }> {
+    return api<{ data: Holiday[] }>('/api/timetable/holidays', { token });
 }
 
 export async function setLessonColor(

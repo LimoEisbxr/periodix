@@ -21,6 +21,10 @@ const MAX_AGE_DAYS = 45; // Hard limit for any cached timetable
 const MAX_HISTORY_PER_RANGE = 2; // Keep at most 2 historical copies per week
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // Run pruning at most every 6h per process
 
+// Simple in-memory cache for holidays: userId -> { data: any[], timestamp: number }
+const holidayCache = new Map<string, { data: any[]; timestamp: number }>();
+const HOLIDAY_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
 let lastCleanupRun = 0; // In‑memory marker; acceptable for single process / ephemeral scaling
 
 type TimetableFallbackReason = 'UNTIS_UNAVAILABLE' | 'BAD_CREDENTIALS';
@@ -571,6 +575,83 @@ export async function getOrFetchTimetableRange(args: {
         stale: false,
         lastUpdated: fresh.createdAt,
     });
+}
+
+export async function getHolidays(userId: string) {
+    const cached = holidayCache.get(userId);
+    if (cached && Date.now() - cached.timestamp < HOLIDAY_CACHE_TTL) {
+        return cached.data;
+    }
+
+    const target: any = await (prisma as any).user.findUnique({
+        where: { id: userId },
+        select: {
+            id: true,
+            username: true,
+            untisSecretCiphertext: true,
+            untisSecretNonce: true,
+            untisSecretKeyVersion: true,
+        },
+    });
+    if (!target) throw new Error('User not found');
+
+    if (!target.untisSecretCiphertext || !target.untisSecretNonce) {
+        throw new AppError(
+            'User missing encrypted Untis credential',
+            400,
+            'MISSING_UNTIS_SECRET'
+        );
+    }
+    let untisPassword: string;
+    try {
+        untisPassword = decryptSecret({
+            ciphertext: target.untisSecretCiphertext as any,
+            nonce: target.untisSecretNonce as any,
+            keyVersion: target.untisSecretKeyVersion || 1,
+        });
+    } catch (e) {
+        throw new AppError(
+            'Credential decryption failed',
+            500,
+            'DECRYPT_FAILED'
+        );
+    }
+    const untis = new WebUntis(
+        UNTIS_DEFAULT_SCHOOL,
+        target.username,
+        untisPassword,
+        UNTIS_HOST
+    ) as any;
+
+    try {
+        await untis.login();
+        let holidays = [];
+        if (typeof untis.getHolidays === 'function') {
+            holidays = await untis.getHolidays();
+        } else {
+            console.warn('[untis] getHolidays not available on client');
+        }
+        try {
+            await untis.logout();
+        } catch {}
+
+        holidayCache.set(userId, { data: holidays, timestamp: Date.now() });
+        return holidays;
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        // If login fails, try to return cached data even if expired
+        if (cached) {
+            return cached.data;
+        }
+        throw new AppError('Untis fetch failed', 502, 'UNTIS_FETCH_FAILED');
+    }
 }
 
 export async function verifyUntisCredentials(

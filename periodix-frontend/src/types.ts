@@ -74,6 +74,14 @@ export type Exam = {
     text?: string;
 };
 
+export type Holiday = {
+    id: number;
+    name: string;
+    longName: string;
+    startDate: number; // yyyymmdd
+    endDate: number; // yyyymmdd
+};
+
 export type LessonColors = Record<string, string>; // lessonName -> hex color
 
 export type ColorGradient = {

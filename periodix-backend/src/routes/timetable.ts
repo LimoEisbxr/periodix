@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../server/authMiddleware.js';
 import jwt from 'jsonwebtoken';
-import { getOrFetchTimetableRange } from '../services/untisService.js';
+import {
+    getOrFetchTimetableRange,
+    getHolidays,
+} from '../services/untisService.js';
 import { untisUserLimiter } from '../server/untisRateLimiter.js';
 import { prisma } from '../store/prisma.js';
 
@@ -12,6 +15,24 @@ const rangeSchema = z.object({
     userId: z.string().uuid().optional(),
     start: z.string().optional(),
     end: z.string().optional(),
+});
+
+router.get('/holidays', authMiddleware, async (req, res) => {
+    try {
+        const holidays = await getHolidays(req.user!.id);
+        res.json({ ok: true, data: holidays });
+    } catch (e: any) {
+        const status = e?.status || 500;
+        console.error('[timetable/holidays] error', {
+            status,
+            message: e?.message,
+            code: e?.code,
+        });
+        res.status(status).json({
+            error: e?.message || 'Failed',
+            code: e?.code,
+        });
+    }
 });
 
 router.get('/me', authMiddleware, untisUserLimiter, async (req, res) => {
@@ -53,7 +74,7 @@ router.get(
         try {
             const { userId, start, end } = params.data;
             const requesterId = req.user!.id;
-            
+
             // Check if user is admin
             const auth = req.headers.authorization || '';
             const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
@@ -65,7 +86,7 @@ router.get(
                 );
                 isAdmin = Boolean(decoded?.isAdmin);
             } catch {}
-            
+
             // Admins can view any user's timetable
             if (isAdmin) {
                 const data = await getOrFetchTimetableRange({
@@ -76,7 +97,7 @@ router.get(
                 });
                 return res.json(data);
             }
-            
+
             // Check if requesting own timetable
             if (requesterId === userId) {
                 const data = await getOrFetchTimetableRange({
@@ -87,29 +108,31 @@ router.get(
                 });
                 return res.json(data);
             }
-            
+
             // Check global sharing setting
             const appSettings = await (prisma as any).appSettings.findFirst();
             if (appSettings && !appSettings.globalSharingEnabled) {
-                return res.status(403).json({ 
-                    error: 'Timetable sharing is currently disabled' 
+                return res.status(403).json({
+                    error: 'Timetable sharing is currently disabled',
                 });
             }
-            
+
             // Check if target user has sharing enabled and is sharing with requester
             const targetUser = await (prisma as any).user.findUnique({
                 where: { id: userId },
                 select: { sharingEnabled: true },
             });
-            
+
             if (!targetUser || !targetUser.sharingEnabled) {
-                return res.status(403).json({ 
-                    error: 'User is not sharing their timetable' 
+                return res.status(403).json({
+                    error: 'User is not sharing their timetable',
                 });
             }
-            
+
             // Check if there's a sharing relationship
-            const shareRelationship = await (prisma as any).timetableShare.findUnique({
+            const shareRelationship = await (
+                prisma as any
+            ).timetableShare.findUnique({
                 where: {
                     ownerId_sharedWithId: {
                         ownerId: userId!,
@@ -117,13 +140,13 @@ router.get(
                     },
                 },
             });
-            
+
             if (!shareRelationship) {
-                return res.status(403).json({ 
-                    error: 'You do not have permission to view this timetable' 
+                return res.status(403).json({
+                    error: 'You do not have permission to view this timetable',
                 });
             }
-            
+
             const data = await getOrFetchTimetableRange({
                 requesterId,
                 targetUserId: userId!,
