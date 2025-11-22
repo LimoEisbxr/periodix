@@ -158,14 +158,7 @@ export default function AbsencePanel({
 }: AbsencePanelProps) {
     const [shouldRender, setShouldRender] = useState(false);
     const [animating, setAnimating] = useState(false);
-    const [canCollapseTimeframe, setCanCollapseTimeframe] = useState(false);
     const scrollAreaRef = useRef<HTMLDivElement | null>(null);
-    const canCollapseRef = useRef(false);
-    const timeframeRef = useRef<HTMLDivElement | null>(null);
-
-    useEffect(() => {
-        canCollapseRef.current = canCollapseTimeframe;
-    }, [canCollapseTimeframe]);
 
     useEffect(() => {
         let timeout: number | undefined;
@@ -188,84 +181,6 @@ export default function AbsencePanel({
             return (b.startTime ?? 0) - (a.startTime ?? 0);
         });
     }, [data?.absences]);
-
-    useEffect(() => {
-        if (!isOpen || !shouldRender) return;
-        const node = scrollAreaRef.current;
-        if (!node) return;
-
-        const mediaQuery =
-            typeof window !== 'undefined'
-                ? window.matchMedia('(max-width: 640px)')
-                : null;
-        let isMobile = mediaQuery?.matches ?? false;
-
-        const updateOverflowState = () => {
-            if (!node) return;
-            const overflow = node.scrollHeight - node.clientHeight;
-            const canCollapse = overflow > 80;
-            setCanCollapseTimeframe(canCollapse && isMobile);
-
-            // Reset transform if not collapsible
-            if (!canCollapse && timeframeRef.current) {
-                timeframeRef.current.style.transform = '';
-                timeframeRef.current.style.opacity = '';
-                timeframeRef.current.classList.remove('collapsed');
-            }
-        };
-
-        updateOverflowState();
-
-        const resizeObserver =
-            typeof ResizeObserver !== 'undefined'
-                ? new ResizeObserver(() => updateOverflowState())
-                : null;
-        resizeObserver?.observe(node);
-
-        const handleMediaChange = (event: MediaQueryListEvent) => {
-            isMobile = event.matches;
-            if (!isMobile && timeframeRef.current) {
-                timeframeRef.current.style.transform = '';
-                timeframeRef.current.style.opacity = '';
-                timeframeRef.current.classList.remove('collapsed');
-            }
-            updateOverflowState();
-        };
-        mediaQuery?.addEventListener('change', handleMediaChange);
-
-        const handleScroll = () => {
-            if (!isMobile || !canCollapseRef.current || !timeframeRef.current)
-                return;
-            const current = node.scrollTop;
-            const height = timeframeRef.current.offsetHeight || 220;
-
-            // Increase resistance for longer lists to prevent rapid collapse
-            const resistance = node.scrollHeight > 1500 ? 4 : 2.5;
-
-            // Calculate offset based on scroll position (parallax effect)
-            // We want the header to move up slower than the content
-            // offset = scrollTop * (1 - 1/resistance)
-            // But we clamp it so it doesn't move up more than its height
-            const moveUp = Math.min(height, current / resistance);
-
-            timeframeRef.current.style.transform = `translateY(-${moveUp}px)`;
-            timeframeRef.current.style.opacity = `${1 - moveUp / height}`;
-
-            if (moveUp >= height * 0.95) {
-                timeframeRef.current.classList.add('collapsed');
-            } else {
-                timeframeRef.current.classList.remove('collapsed');
-            }
-        };
-
-        node.addEventListener('scroll', handleScroll, { passive: true });
-
-        return () => {
-            mediaQuery?.removeEventListener('change', handleMediaChange);
-            node.removeEventListener('scroll', handleScroll);
-            resizeObserver?.disconnect();
-        };
-    }, [isOpen, shouldRender, sortedAbsences.length]);
 
     const isCached = Boolean(data?.cached);
     const isStale = Boolean(data?.stale);
@@ -355,8 +270,7 @@ export default function AbsencePanel({
                     className="flex-1 overflow-y-auto absence-scroll relative"
                 >
                     <div
-                        ref={timeframeRef}
-                        className="sticky top-0 z-40 bg-white dark:bg-slate-950 p-4 border-b border-slate-200 dark:border-slate-800 absence-timeframe"
+                        className="bg-white dark:bg-slate-950 p-4 border-b border-slate-200 dark:border-slate-800"
                     >
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
                             <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
