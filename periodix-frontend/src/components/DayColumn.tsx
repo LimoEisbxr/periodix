@@ -792,7 +792,7 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     // Determine if there's enough space to show time frame along with teacher
                     // We need space for: subject (~16px) + teacher (~14px) + time (~14px) + margins
-                    // Only show time if we have sufficient space for subject + teacher + time (minimum 50px total)
+                    // Only show time if we have sufficient space for subject + teacher + time
                     const MIN_TIME_DISPLAY_HEIGHT = isMobile
                         ? 56
                         : isClassTimetable
@@ -808,20 +808,20 @@ const DayColumn: FC<DayColumnProps> = ({
                     const MIN_COMPACT_DISPLAY_HEIGHT = isMobile
                         ? 55
                         : isClassTimetable
-                        ? 55
+                        ? 65
                         : 55;
                     // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
                     const MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : isClassTimetable ? 48 : 55;
+                        isMobile ? 55 : isClassTimetable ? 40 : 55;
 
                     // Third threshold: replace teacher with room on the same row as subject (very tight space)
                     const MIN_INLINE_ROOM_DISPLAY_HEIGHT = isMobile
                         ? 45
                         : isClassTimetable
-                        ? 40
+                        ? 32
                         : 45;
                     const MIN_INLINE_ROOM_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : 55;
+                        isMobile ? 55 : isClassTimetable ? 41 : 55;
 
                     const availableSpace = heightPx - reservedBottomPx;
                     const canShowTimeFrame =
@@ -1372,7 +1372,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                     <FitText
                                         mode="both"
                                         maxScale={1.6}
-                                        minScale={isClassTimetable ? 0.55 : 0.9} // prevent overly tiny scaling that reduced readability
+                                        minScale={isClassTimetable ? 0.8 : 0.9} // prevent overly tiny scaling that reduced readability
                                         reserveBottom={reservedBottomPx}
                                         className="min-w-0 self-stretch"
                                     >
