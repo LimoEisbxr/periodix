@@ -104,8 +104,8 @@ const DayColumn: FC<DayColumnProps> = ({
     // Collapse-overlap state for narrow columns even when not considered "mobile"
     // Use hysteresis so layout doesn't flicker near the boundary.
     // Collapse when narrower than ENTER, expand back to side-by-side when wider than EXIT.
-    const COLLAPSE_ENTER_WIDTH = 195; // px (collapse when below this)
-    const COLLAPSE_EXIT_WIDTH = 200; // px (re-enable side-by-side when above this)
+    const COLLAPSE_ENTER_WIDTH = isClassTimetable ? 100 : 195; // px (collapse when below this)
+    const COLLAPSE_EXIT_WIDTH = isClassTimetable ? 105 : 200; // px (re-enable side-by-side when above this)
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [collapseNarrow, setCollapseNarrow] = useState(false);
     const [measuredWidth, setMeasuredWidth] = useState<number>(0);
@@ -142,7 +142,7 @@ const DayColumn: FC<DayColumnProps> = ({
             ro.disconnect();
             window.removeEventListener('resize', compute);
         };
-    }, []);
+    }, [isClassTimetable]);
 
     // DEBUG: Log items for Thursday 27.11.2025 to verify data arrival
     // (Removed debug logs)
@@ -569,7 +569,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     const GAP_PCT = 1.5; // Reduced gap for better space utilization
                     const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
                     const MOBILE_MIN_COLUMN_WIDTH = 140; // px - min per-lesson width on mobile to allow side-by-side
-                    const DESKTOP_MIN_COLUMN_WIDTH = 60; // px - min per-lesson width on desktop before collapsing
+                    const DESKTOP_MIN_COLUMN_WIDTH = isClassTimetable ? 28 : 60; // px - min per-lesson width on desktop before collapsing
                     const DESKTOP_MAX_COLUMNS = 3;
 
                     let visibleCols = b.colCount;
@@ -679,7 +679,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                 widthPct =
                                     (100 - GAP_PCT * (visibleCols - 1)) /
                                     visibleCols;
-                                const visibleIndex = b.colIndex;
+                                const cutoff = b.colCount - visibleCols;
+                                const visibleIndex = b.colIndex - cutoff;
                                 leftPct = visibleIndex * (widthPct + GAP_PCT);
                             }
                         }
@@ -723,7 +724,8 @@ const DayColumn: FC<DayColumnProps> = ({
                         MIN_BOTTOM_RESERVE
                     );
                     // Extra right padding for room label shown under icons on desktop
-                    const roomPadRightPx = !isMobile && room ? 88 : 0;
+                    const roomPadRightPx =
+                        !isMobile && room ? (isClassTimetable ? 20 : 88) : 0;
                     // Allow a more compact mobile layout: lower height threshold for previews
                     // Previously used to decide rendering of inline info previews; now removed.
                     // const MIN_PREVIEW_HEIGHT = isMobile ? 44 : 56;
@@ -1293,7 +1295,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                     <FitText
                                         mode="both"
                                         maxScale={1.6}
-                                        minScale={0.9} // prevent overly tiny scaling that reduced readability
+                                        minScale={isClassTimetable ? 0.55 : 0.9} // prevent overly tiny scaling that reduced readability
                                         reserveBottom={reservedBottomPx}
                                         className="min-w-0 self-stretch"
                                     >
