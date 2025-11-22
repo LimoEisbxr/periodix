@@ -49,8 +49,8 @@ function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
     const lesson2StartMin = toMinutes(lesson2.startTime);
     const breakMinutes = lesson2StartMin - lesson1EndMin;
 
-    // Merge if break is 20 minutes or less (including negative for overlapping)
-    return breakMinutes <= 20;
+    // Merge if break is 5 minutes or less (including negative for overlapping)
+    return breakMinutes <= 5;
 }
 
 /**
