@@ -794,10 +794,10 @@ const DayColumn: FC<DayColumnProps> = ({
                     // We need space for: subject (~16px) + teacher (~14px) + time (~14px) + margins
                     // Only show time if we have sufficient space for subject + teacher + time
                     const MIN_TIME_DISPLAY_HEIGHT = isMobile
-                        ? 56
+                        ? 70
                         : isClassTimetable
                         ? 44
-                        : 56;
+                        : 70;
                     // When the timeframe wraps to multiple lines, require a bit more vertical space for single (non-merged) lessons
                     const MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE = isMobile
                         ? 0 // timeframe is not shown on mobile
@@ -812,7 +812,7 @@ const DayColumn: FC<DayColumnProps> = ({
                         : 55;
                     // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
                     const MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : isClassTimetable ? 40 : 55;
+                        isMobile ? 66 : isClassTimetable ? 45 : 66;
 
                     // Third threshold: replace teacher with room on the same row as subject (very tight space)
                     const MIN_INLINE_ROOM_DISPLAY_HEIGHT = isMobile
@@ -821,7 +821,7 @@ const DayColumn: FC<DayColumnProps> = ({
                         ? 32
                         : 45;
                     const MIN_INLINE_ROOM_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : isClassTimetable ? 41 : 55;
+                        isMobile ? 55 : isClassTimetable ? 55 : 55;
 
                     const availableSpace = heightPx - reservedBottomPx;
                     const canShowTimeFrame =
