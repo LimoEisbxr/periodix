@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 
-// In-memory per-user limiter: max 6 requests per 5s
+// In-memory per-user limiter with configurable windows per bucket.
 // Applies to routes that hit WebUntis (timetable fetches, credential verification)
 
 type Stamp = number; // milliseconds since epoch
@@ -9,8 +9,14 @@ type Entry = {
     lastAllowedAt: Stamp | null;
 };
 
-const WINDOW_MS = 5_000; // 5 seconds
-const MAX_WITHIN_WINDOW = 6;
+type LimiterConfig = {
+    windowMs?: number;
+    maxWithinWindow?: number;
+    bucket?: string;
+};
+
+const DEFAULT_WINDOW_MS = 5_000; // 5 seconds
+const DEFAULT_MAX_WITHIN_WINDOW = 6;
 
 const store = new Map<string, Entry>();
 
@@ -27,36 +33,46 @@ function getKey(req: Request): string {
     return `ip:${req.ip}`;
 }
 
-export function untisUserLimiter(
-    req: Request,
-    res: Response,
-    next: NextFunction
-) {
-    const key = getKey(req);
-    const t = now();
-    let entry = store.get(key);
-    if (!entry) {
-        entry = { stamps: [], lastAllowedAt: null };
-        store.set(key, entry);
-    }
+function createLimiter(config: LimiterConfig = {}) {
+    const windowMs = config.windowMs ?? DEFAULT_WINDOW_MS;
+    const maxWithinWindow = config.maxWithinWindow ?? DEFAULT_MAX_WITHIN_WINDOW;
+    const bucket = config.bucket ?? 'default';
 
-    // Prune window
-    entry.stamps = entry.stamps.filter((s) => t - s <= WINDOW_MS);
+    return function untisLimiter(
+        req: Request,
+        res: Response,
+        next: NextFunction
+    ) {
+        const key = `${bucket}:${getKey(req)}`;
+        const t = now();
+        let entry = store.get(key);
+        if (!entry) {
+            entry = { stamps: [], lastAllowedAt: null };
+            store.set(key, entry);
+        }
 
-    // Enforce window max
-    if (entry.stamps.length >= MAX_WITHIN_WINDOW) {
-        const oldest = entry.stamps[0] ?? t;
-        const until = WINDOW_MS - (t - oldest);
-        const retryAfter = Math.max(1, Math.ceil(until / 1000));
-        res.setHeader('Retry-After', String(retryAfter));
-        return res.status(429).json({
-            error: 'Too many WebUntis requests. Please try again shortly.',
-            retryAfter,
-        });
-    }
+        entry.stamps = entry.stamps.filter((s) => t - s <= windowMs);
 
-    // Allow
-    entry.stamps.push(t);
-    entry.lastAllowedAt = t;
-    next();
+        if (entry.stamps.length >= maxWithinWindow) {
+            const oldest = entry.stamps[0] ?? t;
+            const until = windowMs - (t - oldest);
+            const retryAfter = Math.max(1, Math.ceil(until / 1000));
+            res.setHeader('Retry-After', String(retryAfter));
+            return res.status(429).json({
+                error: 'Too many WebUntis requests. Please try again shortly.',
+                retryAfter,
+            });
+        }
+
+        entry.stamps.push(t);
+        entry.lastAllowedAt = t;
+        next();
+    };
 }
+
+export const untisUserLimiter = createLimiter();
+
+export const untisClassLimiter = createLimiter({
+    bucket: 'class',
+    maxWithinWindow: 12,
+});

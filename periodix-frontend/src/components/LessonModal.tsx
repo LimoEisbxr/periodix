@@ -181,7 +181,7 @@ export default function LessonModal({
                                 <div
                                     role="tablist"
                                     aria-label="Overlapping lessons"
-                                    className="flex items-end gap-2 overflow-x-auto no-scrollbar pr-1 border-b border-slate-200/60 dark:border-slate-700/60"
+                                    className="flex items-end gap-2 overflow-x-auto scroll-area-native pr-1 border-b border-slate-200/60 dark:border-slate-700/60"
                                     ref={tabListRef}
                                 >
                                     {lessonsArray.map((lsn, idx) => {

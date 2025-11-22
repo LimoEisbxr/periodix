@@ -5,14 +5,26 @@ import jwt from 'jsonwebtoken';
 import {
     getOrFetchTimetableRange,
     getHolidays,
+    getUserClasses,
+    getClassTimetable,
+    searchClasses,
 } from '../services/untisService.js';
-import { untisUserLimiter } from '../server/untisRateLimiter.js';
+import {
+    untisUserLimiter,
+    untisClassLimiter,
+} from '../server/untisRateLimiter.js';
 import { prisma } from '../store/prisma.js';
 
 const router = Router();
 
 const rangeSchema = z.object({
     userId: z.string().uuid().optional(),
+    start: z.string().optional(),
+    end: z.string().optional(),
+});
+
+const classRangeSchema = z.object({
+    classId: z.coerce.number(),
     start: z.string().optional(),
     end: z.string().optional(),
 });
@@ -157,6 +169,93 @@ router.get(
         } catch (e: any) {
             const status = e?.status || 500;
             console.error('[timetable/user] error', {
+                status,
+                message: e?.message,
+                code: e?.code,
+            });
+            res.status(status).json({
+                error: e?.message || 'Failed',
+                code: e?.code,
+            });
+        }
+    }
+);
+
+// Get list of classes available to the user
+router.get('/classes', authMiddleware, untisClassLimiter, async (req, res) => {
+    try {
+        const classes = await getUserClasses(req.user!.id);
+        res.json({ ok: true, classes });
+    } catch (e: any) {
+        const status = e?.status || 500;
+        console.error('[timetable/classes] error', {
+            status,
+            message: e?.message,
+            code: e?.code,
+        });
+        res.status(status).json({
+            error: e?.message || 'Failed',
+            code: e?.code,
+        });
+    }
+});
+
+// Get class timetable
+router.get(
+    '/class/:classId',
+    authMiddleware,
+    untisClassLimiter,
+    async (req, res) => {
+        const params = classRangeSchema.safeParse({
+            ...req.query,
+            classId: req.params.classId,
+        });
+        if (!params.success) {
+            return res.status(400).json({ error: params.error.flatten() });
+        }
+        try {
+            const { classId, start, end } = params.data;
+            const requesterId = req.user!.id;
+
+            const data = await getClassTimetable({
+                requesterId,
+                classId,
+                start,
+                end,
+            });
+            res.json(data);
+        } catch (e: any) {
+            const status = e?.status || 500;
+            console.error('[timetable/class] error', {
+                status,
+                message: e?.message,
+                code: e?.code,
+            });
+            res.status(status).json({
+                error: e?.message || 'Failed',
+                code: e?.code,
+            });
+        }
+    }
+);
+
+// Search for classes
+router.get(
+    '/classes/search',
+    authMiddleware,
+    untisClassLimiter,
+    async (req, res) => {
+        const q = (req.query.q as string)?.trim();
+        if (!q || q.length < 2) {
+            return res.json({ classes: [] });
+        }
+
+        try {
+            const classes = await searchClasses(req.user!.id, q);
+            res.json({ classes });
+        } catch (e: any) {
+            const status = e?.status || 500;
+            console.error('[timetable/classes/search] error', {
                 status,
                 message: e?.message,
                 code: e?.code,

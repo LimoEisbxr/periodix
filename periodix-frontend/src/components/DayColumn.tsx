@@ -37,6 +37,7 @@ export type DayColumnProps = {
     mobileTinyLessonThresholdPx?: number; // threshold for tiny single lessons on mobile (px)
     isDeveloperMode?: boolean; // enables background click JSON popup
     suppressHolidayBanner?: boolean;
+    isClassTimetable?: boolean;
 };
 
 const DayColumn: FC<DayColumnProps> = ({
@@ -58,6 +59,7 @@ const DayColumn: FC<DayColumnProps> = ({
     mobileTinyLessonThresholdPx = 56,
     isDeveloperMode = false,
     suppressHolidayBanner = false,
+    isClassTimetable = false,
 }) => {
     // Developer JSON modal state
     const [showDayJson, setShowDayJson] = useState(false);
@@ -567,28 +569,58 @@ const DayColumn: FC<DayColumnProps> = ({
                     const GAP_PCT = 1.5; // Reduced gap for better space utilization
                     const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
                     const MOBILE_MIN_COLUMN_WIDTH = 140; // px - min per-lesson width on mobile to allow side-by-side
+                    const DESKTOP_MIN_COLUMN_WIDTH = 60; // px - min per-lesson width on desktop before collapsing
+                    const DESKTOP_MAX_COLUMNS = 3;
 
-                    let mobileVisibleCols = 1;
-                    if (isMobile && b.colCount > 1) {
-                        const maxFit = Math.max(
-                            1,
-                            Math.floor(
-                                (measuredWidth + gapPx) /
-                                    (MOBILE_MIN_COLUMN_WIDTH + gapPx)
-                            )
-                        );
-                        mobileVisibleCols = Math.min(b.colCount, maxFit);
+                    let visibleCols = b.colCount;
+
+                    if (isMobile) {
+                        if (b.colCount > 1) {
+                            const maxFit = Math.max(
+                                1,
+                                Math.floor(
+                                    (measuredWidth + gapPx) /
+                                        (MOBILE_MIN_COLUMN_WIDTH + gapPx)
+                                )
+                            );
+                            visibleCols = Math.min(b.colCount, maxFit);
+                        }
+                    } else {
+                        // Desktop overcrowding check with explicit cap
+                        if (b.colCount > 1) {
+                            const maxFit = Math.max(
+                                1,
+                                Math.floor(
+                                    (measuredWidth + gapPx) /
+                                        (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
+                                )
+                            );
+                            const cappedFit = Math.min(
+                                DESKTOP_MAX_COLUMNS,
+                                maxFit
+                            );
+                            visibleCols = Math.min(b.colCount, cappedFit);
+                        }
                     }
 
-                    const isMobileCollapsed =
-                        isMobile && mobileVisibleCols <= 1;
+                    const isCollapsed = visibleCols < b.colCount;
+                    const isMobileCollapsed = isMobile && isCollapsed; // Keep for mobile-specific styling if needed
+                    const isDesktopCollapsed =
+                        !isMobile && (collapseNarrow || isCollapsed);
 
                     // Hide non-visible columns depending on state
                     if (b.colCount > 1) {
                         if (!isMobile && collapseNarrow) {
-                            if (b.colIndex !== 0) return null;
-                        } else if (isMobile) {
-                            if (b.colIndex >= mobileVisibleCols) return null;
+                            if (b.colIndex !== b.colCount - 1) return null;
+                        } else if (isCollapsed) {
+                            if (visibleCols <= 1) {
+                                // If we can only show 1, show the last one (top of stack)
+                                if (b.colIndex !== b.colCount - 1) return null;
+                            } else {
+                                // show only the last N columns that fit
+                                const cutoff = b.colCount - visibleCols;
+                                if (b.colIndex < cutoff) return null;
+                            }
                         }
                     }
 
@@ -639,12 +671,11 @@ const DayColumn: FC<DayColumnProps> = ({
                         if (!isMobile && collapseNarrow) {
                             widthPct = 100;
                             leftPct = 0;
-                        } else if (isMobile) {
-                            if (mobileVisibleCols <= 1) {
+                        } else if (isCollapsed) {
+                            if (visibleCols <= 1) {
                                 widthPct = 100;
                                 leftPct = 0;
                             } else {
-                                const visibleCols = mobileVisibleCols;
                                 widthPct =
                                     (100 - GAP_PCT * (visibleCols - 1)) /
                                     visibleCols;
@@ -700,16 +731,26 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Determine if there's enough space to show time frame along with teacher
                     // We need space for: subject (~16px) + teacher (~14px) + time (~14px) + margins
                     // Only show time if we have sufficient space for subject + teacher + time (minimum 50px total)
-                    const MIN_TIME_DISPLAY_HEIGHT = isMobile ? 56 : 56;
+                    const MIN_TIME_DISPLAY_HEIGHT = isMobile
+                        ? 56
+                        : isClassTimetable
+                        ? 44
+                        : 56;
                     // When the timeframe wraps to multiple lines, require a bit more vertical space for single (non-merged) lessons
                     const MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE = isMobile
                         ? 0 // timeframe is not shown on mobile
+                        : isClassTimetable
+                        ? 64
                         : 80;
                     // Second threshold for very compact layout: move teacher to same row as subject
-                    const MIN_COMPACT_DISPLAY_HEIGHT = isMobile ? 45 : 45;
+                    const MIN_COMPACT_DISPLAY_HEIGHT = isMobile
+                        ? 45
+                        : isClassTimetable
+                        ? 40
+                        : 45;
                     // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
                     const MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : 55;
+                        isMobile ? 55 : isClassTimetable ? 48 : 55;
                     const availableSpace = heightPx - reservedBottomPx;
                     const canShowTimeFrame =
                         !isMobile && availableSpace >= MIN_TIME_DISPLAY_HEIGHT;
@@ -769,6 +810,37 @@ const DayColumn: FC<DayColumnProps> = ({
                         !!roomMobile &&
                         !(cancelled || irregular) &&
                         (!teacherChanged || roomChanged);
+
+                    const showClassCondensedMeta =
+                        isClassTimetable &&
+                        !isMobile &&
+                        !canShowTimeFrame &&
+                        availableSpace > 14;
+
+                    const condensedTimeLabel = showClassCondensedMeta
+                        ? `${fmtHM(b.startMin)}–${fmtHM(b.endMin)}`
+                        : null;
+
+                    const inlineRoomBlock =
+                        !isMobile && room ? (
+                            <div
+                                className={`text-[11px] leading-tight mt-0.5 ${
+                                    cancelled
+                                        ? 'lesson-cancelled-room'
+                                        : 'opacity-95'
+                                }`}
+                            >
+                                <span
+                                    className={
+                                        roomInfoMeta?.hasChanges
+                                            ? 'change-highlight-inline'
+                                            : undefined
+                                    }
+                                >
+                                    {room}
+                                </span>
+                            </div>
+                        ) : null;
 
                     return (
                         <div
@@ -851,7 +923,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                 </>
                             )}
                             {/* Subtle stacked design when column is narrow (between mobile and side-by-side) */}
-                            {!isMobile && collapseNarrow && b.colCount > 1 && (
+                            {isDesktopCollapsed && b.colCount > 1 && (
                                 <>
                                     {/* left edge bar to suggest layering */}
                                     <div
@@ -869,37 +941,11 @@ const DayColumn: FC<DayColumnProps> = ({
                                     </div>
                                 </>
                             )}
-                            {/* Indicators + room label (desktop) */}
+                            {/* Indicators */}
                             <div className="absolute top-1 right-1 hidden sm:flex flex-col items-end gap-1">
-                                {room && (
-                                    <div
-                                        className={`hidden sm:block text-[11px] leading-tight whitespace-nowrap drop-shadow-sm ${
-                                            cancelled
-                                                ? 'lesson-cancelled-room'
-                                                : ''
-                                        }`}
-                                    >
-                                        {(() => {
-                                            const roomInfo =
-                                                getRoomDisplayText(l);
-                                            // Show only short room codes (no long names or originals) in timetable view
-                                            return (
-                                                <div
-                                                    className={`${
-                                                        roomInfo.hasChanges
-                                                            ? 'change-highlight'
-                                                            : textColorClass
-                                                    }`}
-                                                >
-                                                    {room}
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
                                 <div className="flex gap-1 items-center">
                                     {/* Desktop/narrow stacked indicator placed with badges when overlaps are collapsed */}
-                                    {collapseNarrow && b.colCount > 1 && (
+                                    {isDesktopCollapsed && b.colCount > 1 && (
                                         <div
                                             className="w-4 h-4 rounded-[4px] bg-black/25 dark:bg-white/20 flex items-center justify-center shadow-sm ring-1 ring-black/20 dark:ring-white/20"
                                             title="Multiple overlapping lessons"
@@ -1368,6 +1414,12 @@ const DayColumn: FC<DayColumnProps> = ({
                                                         />
                                                     )}
                                             </>
+                                        )}
+                                        {inlineRoomBlock}
+                                        {condensedTimeLabel && (
+                                            <div className="text-[11px] leading-tight opacity-85 mt-0.5">
+                                                {condensedTimeLabel}
+                                            </div>
                                         )}
                                     </FitText>
                                 </div>

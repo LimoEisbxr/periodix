@@ -98,6 +98,7 @@ html.dark .scroll-area-native {
 }
 .scroll-area-native::-webkit-scrollbar {
     width: 10px;
+    height: 10px;
 }
 .scroll-area-native::-webkit-scrollbar-track {
     background: transparent;

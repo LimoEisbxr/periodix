@@ -20,6 +20,10 @@ import {
     getUserPreferences,
     updateUserPreferences,
     getHolidays,
+    getUserClasses,
+    getClassTimetable,
+    searchClasses,
+    type ClassInfo,
 } from '../api';
 import {
     isServiceWorkerSupported,
@@ -44,12 +48,18 @@ import type {
     Holiday,
 } from '../types';
 
+type SearchResult =
+    | { type: 'user'; id: string; username: string; displayName: string | null }
+    | { type: 'class'; id: number; name: string; longName: string };
+
 type FallbackNoticeState = {
     reason: TimetableFallbackReason | 'UNKNOWN';
     lastUpdated?: string | null;
     errorCode?: string | number;
     errorMessage?: string;
 };
+
+const CLASS_TIMETABLE_CACHE_TTL_MS = 60 * 1000;
 
 export default function Dashboard({
     token,
@@ -72,21 +82,23 @@ export default function Dashboard({
     const [loadError, setLoadError] = useState<string | null>(null);
     const [colorError, setColorError] = useState<string | null>(null);
     const [queryText, setQueryText] = useState('');
-    const [results, setResults] = useState<
-        Array<{ id: string; username: string; displayName: string | null }>
-    >([]);
+    const [results, setResults] = useState<SearchResult[]>([]);
+    const [availableClasses, setAvailableClasses] = useState<ClassInfo[]>([]);
+    const primaryClass = useMemo(
+        () => availableClasses[0] ?? null,
+        [availableClasses]
+    );
     // Track loading & error state for search to avoid flicker on mobile
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     // Persist last successful results so they don't vanish while a new request is in-flight
-    const lastResultsRef = useRef<
-        Array<{ id: string; username: string; displayName: string | null }>
-    >([]);
+    const lastResultsRef = useRef<SearchResult[]>([]);
     const [selectedUser, setSelectedUser] = useState<{
         id: string;
         username: string;
         displayName: string | null;
     } | null>(null);
+    const [selectedClass, setSelectedClass] = useState<ClassInfo | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const searchBoxRef = useRef<HTMLDivElement | null>(null);
     const [mobileSearchOpen, setMobileSearchOpen] = useState(false); // full-screen popup on mobile
@@ -112,6 +124,9 @@ export default function Dashboard({
         useState<FallbackNoticeState | null>(null);
     const fallbackDismissedRef = useRef<Set<string>>(new Set());
     const fallbackKeyRef = useRef<string | null>(null);
+    const classTimetableCacheRef = useRef<
+        Map<string, { data: TimetableResponse; timestamp: number }>
+    >(new Map());
 
     // Initialize timetable cache hook
     const { getTimetableData, getCachedData, invalidateCache } =
@@ -151,6 +166,13 @@ export default function Dashboard({
 
             const targetWeekStartStr = fmtLocal(targetDate);
             const targetWeekEndStr = fmtLocal(addDays(targetDate, 6));
+
+            if (selectedClass) {
+                const cacheKey = `${selectedClass.id}:${targetWeekStartStr}:${targetWeekEndStr}`;
+                const cached = classTimetableCacheRef.current.get(cacheKey);
+                return cached ? cached.data : null;
+            }
+
             const targetUserId = selectedUser?.id || user.id;
 
             // Get cached data for the target week
@@ -160,7 +182,13 @@ export default function Dashboard({
                 targetWeekEndStr
             );
         },
-        [weekStartDate, selectedUser?.id, user.id, getCachedData]
+        [
+            weekStartDate,
+            selectedUser?.id,
+            user.id,
+            getCachedData,
+            selectedClass,
+        ]
     );
     // Short auto-retry countdown for rate limit (429)
     const [retrySeconds, setRetrySeconds] = useState<number | null>(null);
@@ -346,11 +374,124 @@ export default function Dashboard({
         ]
     );
 
+    const loadClass = useCallback(
+        async (classId: number) => {
+            setLoadError(null);
+            const cacheKey = `${classId}:${weekStartStr}:${weekEndStr}`;
+
+            // Prefetch adjacent weeks for smooth swiping
+            const prefetchAdjacent = () => {
+                const baseDate = new Date(weekStartStr);
+                [-7, 7].forEach(async (offset) => {
+                    const targetDate = addDays(baseDate, offset);
+                    const s = fmtLocal(targetDate);
+                    const e = fmtLocal(addDays(targetDate, 6));
+                    const k = `${classId}:${s}:${e}`;
+
+                    // Skip if already cached and fresh enough
+                    const existing = classTimetableCacheRef.current.get(k);
+                    if (
+                        existing &&
+                        Date.now() - existing.timestamp <
+                            CLASS_TIMETABLE_CACHE_TTL_MS
+                    )
+                        return;
+
+                    try {
+                        const res = await getClassTimetable(
+                            token,
+                            classId,
+                            s,
+                            e
+                        );
+                        classTimetableCacheRef.current.set(k, {
+                            data: res,
+                            timestamp: Date.now(),
+                        });
+                    } catch (err) {
+                        // Ignore prefetch errors
+                    }
+                });
+            };
+
+            const cached = classTimetableCacheRef.current.get(cacheKey);
+            if (
+                cached &&
+                Date.now() - cached.timestamp < CLASS_TIMETABLE_CACHE_TTL_MS
+            ) {
+                setMine(cached.data);
+                prefetchAdjacent();
+                return;
+            }
+            try {
+                // Track class timetable view
+                trackActivity(token, 'class_timetable_view', {
+                    classId,
+                }).catch(console.error);
+
+                const res = await getClassTimetable(
+                    token,
+                    classId,
+                    weekStartStr,
+                    weekEndStr
+                );
+                setMine(res);
+                classTimetableCacheRef.current.set(cacheKey, {
+                    data: res,
+                    timestamp: Date.now(),
+                });
+
+                prefetchAdjacent();
+
+                if (classTimetableCacheRef.current.size > 20) {
+                    const oldestKey = Array.from(
+                        classTimetableCacheRef.current.entries()
+                    ).sort((a, b) => a[1].timestamp - b[1].timestamp)[0]?.[0];
+                    if (oldestKey)
+                        classTimetableCacheRef.current.delete(oldestKey);
+                }
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Failed to load';
+                // Auto-retry if rate-limited
+                try {
+                    const parsed = JSON.parse(msg);
+                    if (parsed?.status === 429) {
+                        const retryAfterSec = Math.max(
+                            1,
+                            Number(parsed?.retryAfter || 0) || 1
+                        );
+                        setRetrySeconds(retryAfterSec);
+                        setLoadError(null);
+                        const t = setTimeout(() => {
+                            setRetrySeconds(null);
+                            loadClass(classId);
+                        }, retryAfterSec * 1000);
+                        return () => clearTimeout(t);
+                    }
+                } catch {
+                    // ignore JSON parse errors
+                }
+                setLoadError(msg);
+                setMine({
+                    userId: user.id,
+                    rangeStart: weekStartStr,
+                    rangeEnd: weekEndStr,
+                    payload: [],
+                });
+            }
+        },
+        [token, weekStartStr, weekEndStr, user.id]
+    );
+
     useEffect(() => {
-        if (selectedUser && selectedUser.id !== user.id)
+        if (selectedClass) {
+            loadClass(selectedClass.id);
+        } else if (selectedUser && selectedUser.id !== user.id) {
             loadUser(selectedUser.id);
-        else loadMine();
-    }, [loadUser, loadMine, selectedUser, user.id]);
+        } else {
+            loadMine();
+        }
+    }, [loadClass, loadUser, loadMine, selectedClass, selectedUser, user.id]);
 
     useEffect(() => {
         if (!mine) {
@@ -408,6 +549,35 @@ export default function Dashboard({
         loadLessonColors();
         loadDefaults();
     }, [token]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const loadClassesOnce = async () => {
+            try {
+                const { classes } = await getUserClasses(token);
+                if (!cancelled) setAvailableClasses(classes || []);
+            } catch (error) {
+                if (!cancelled)
+                    console.error('Failed to load class list:', error);
+            }
+        };
+        loadClassesOnce();
+        return () => {
+            cancelled = true;
+        };
+    }, [token]);
+
+    const handleViewMyClass = useCallback(() => {
+        if (!primaryClass) {
+            setLoadError('No class is linked to your account yet.');
+            return;
+        }
+        setSelectedClass(primaryClass);
+        setSelectedUser(null);
+        setQueryText(primaryClass.name);
+        setResults([]);
+        setMobileSearchOpen(false);
+    }, [primaryClass]);
 
     // Load holidays
     useEffect(() => {
@@ -550,12 +720,26 @@ export default function Dashboard({
         invalidateCache(selectedUser?.id || user.id);
 
         // Reload the appropriate data
-        if (selectedUser) {
+        if (selectedClass) {
+            const cacheKey = `${selectedClass.id}:${weekStartStr}:${weekEndStr}`;
+            classTimetableCacheRef.current.delete(cacheKey);
+            await loadClass(selectedClass.id);
+        } else if (selectedUser) {
             await loadUser(selectedUser.id);
         } else {
             await loadMine();
         }
-    }, [invalidateCache, selectedUser, user.id, loadUser, loadMine]);
+    }, [
+        invalidateCache,
+        selectedClass,
+        selectedUser,
+        user.id,
+        loadClass,
+        loadUser,
+        loadMine,
+        weekStartStr,
+        weekEndStr,
+    ]);
 
     const handleDismissFallback = useCallback(() => {
         if (fallbackKeyRef.current) {
@@ -808,27 +992,58 @@ export default function Dashboard({
             abortRef.current = ac;
             try {
                 // Track search activity
-                trackActivity(token, 'search', { query: currentQuery }).catch(
-                    console.error
-                );
+                trackActivity(token, 'search', {
+                    query: currentQuery,
+                    mode: 'unified',
+                }).catch(console.error);
 
                 const base = API_BASE
                     ? String(API_BASE).replace(/\/$/, '')
                     : '';
-                const url = `${base}/api/users/search?q=${encodeURIComponent(
-                    currentQuery
-                )}`;
-                const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${token}` },
-                    signal: ac.signal,
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
+
+                // Fetch users
+                const usersPromise = fetch(
+                    `${base}/api/users/search?q=${encodeURIComponent(
+                        currentQuery
+                    )}`,
+                    {
+                        headers: { Authorization: `Bearer ${token}` },
+                        signal: ac.signal,
+                    }
+                ).then((res) => (res.ok ? res.json() : { users: [] }));
+
+                // Fetch classes
+                const classesPromise = searchClasses(token, currentQuery).catch(
+                    () => ({ classes: [] })
+                );
+
+                const [usersData, classesData] = await Promise.all([
+                    usersPromise,
+                    classesPromise,
+                ]);
+
                 if (cancelled) return;
                 if (queryText.trim() !== currentQuery) return; // stale
-                const users = Array.isArray(data.users) ? data.users : [];
-                setResults(users);
-                lastResultsRef.current = users;
+
+                const users = (
+                    Array.isArray(usersData.users) ? usersData.users : []
+                ).map((u: any) => ({ ...u, type: 'user' as const }));
+
+                const classesList =
+                    classesData &&
+                    'classes' in classesData &&
+                    Array.isArray(classesData.classes)
+                        ? classesData.classes
+                        : [];
+
+                const classes = classesList.map((c: any) => ({
+                    ...c,
+                    type: 'class' as const,
+                }));
+
+                const combined = [...users, ...classes];
+                setResults(combined);
+                lastResultsRef.current = combined;
             } catch (e: unknown) {
                 if (
                     e &&
@@ -892,7 +1107,9 @@ export default function Dashboard({
             }
         };
         const handleKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && results.length) setResults([]);
+            if (e.key === 'Escape') {
+                if (results.length) setResults([]);
+            }
         };
         document.addEventListener('mousedown', handlePointer);
         document.addEventListener('touchstart', handlePointer);
@@ -1047,7 +1264,7 @@ export default function Dashboard({
                                     <div className="relative">
                                         <input
                                             className="input text-sm pr-8"
-                                            placeholder="Student…"
+                                            placeholder="Search students..."
                                             value={queryText}
                                             onChange={(e) =>
                                                 setQueryText(e.target.value)
@@ -1094,42 +1311,80 @@ export default function Dashboard({
                                             <div className="absolute z-40 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
                                                 <ul className="max-h-60 overflow-auto py-1 text-sm">
                                                     {results.map((r) => (
-                                                        <li key={r.id}>
+                                                        <li
+                                                            key={`${r.type}-${r.id}`}
+                                                        >
                                                             <button
                                                                 className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                                                                 onClick={() => {
-                                                                    setSelectedUser(
-                                                                        r
-                                                                    );
-                                                                    setQueryText(
-                                                                        r.displayName ||
-                                                                            r.username
-                                                                    );
-                                                                    setResults(
-                                                                        []
-                                                                    );
                                                                     if (
-                                                                        r.id !==
-                                                                        user.id
-                                                                    )
-                                                                        loadUser(
+                                                                        r.type ===
+                                                                        'user'
+                                                                    ) {
+                                                                        setSelectedUser(
+                                                                            r
+                                                                        );
+                                                                        setSelectedClass(
+                                                                            null
+                                                                        );
+                                                                        setQueryText(
+                                                                            r.displayName ||
+                                                                                r.username
+                                                                        );
+                                                                        setResults(
+                                                                            []
+                                                                        );
+                                                                        if (
+                                                                            r.id !==
+                                                                            user.id
+                                                                        )
+                                                                            loadUser(
+                                                                                r.id
+                                                                            );
+                                                                        else
+                                                                            loadMine();
+                                                                    } else {
+                                                                        setSelectedClass(
+                                                                            {
+                                                                                id: r.id,
+                                                                                name: r.name,
+                                                                                longName:
+                                                                                    r.longName,
+                                                                            }
+                                                                        );
+                                                                        setSelectedUser(
+                                                                            null
+                                                                        );
+                                                                        setQueryText(
+                                                                            r.name
+                                                                        );
+                                                                        setResults(
+                                                                            []
+                                                                        );
+                                                                        loadClass(
                                                                             r.id
                                                                         );
-                                                                    else
-                                                                        loadMine();
+                                                                    }
                                                                 }}
                                                             >
                                                                 <div className="font-medium">
-                                                                    {r.displayName ||
-                                                                        r.username}
+                                                                    {r.type ===
+                                                                    'user'
+                                                                        ? r.displayName ||
+                                                                          r.username
+                                                                        : r.name}
                                                                 </div>
-                                                                {r.displayName && (
-                                                                    <div className="text-xs text-slate-500">
-                                                                        {
-                                                                            r.username
-                                                                        }
-                                                                    </div>
-                                                                )}
+                                                                <div className="text-xs text-slate-500">
+                                                                    {r.type ===
+                                                                    'user'
+                                                                        ? r.displayName
+                                                                            ? r.username
+                                                                            : 'Student'
+                                                                        : r.longName !==
+                                                                          r.name
+                                                                        ? r.longName
+                                                                        : 'Class'}
+                                                                </div>
                                                             </button>
                                                         </li>
                                                     ))}
@@ -1151,14 +1406,48 @@ export default function Dashboard({
                                 </div>
                                 <div className="hidden sm:flex pb-[2px]">
                                     <button
+                                        type="button"
+                                        className="btn-secondary whitespace-nowrap flex items-center gap-2 px-4 py-2 disabled:opacity-60"
+                                        onClick={handleViewMyClass}
+                                        disabled={!primaryClass}
+                                    >
+                                        <svg
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            className="h-4 w-4"
+                                        >
+                                            <rect
+                                                x="3"
+                                                y="4"
+                                                width="18"
+                                                height="6"
+                                                rx="1.5"
+                                            />
+                                            <rect
+                                                x="3"
+                                                y="14"
+                                                width="18"
+                                                height="6"
+                                                rx="1.5"
+                                            />
+                                        </svg>
+                                        Class timetable
+                                    </button>
+                                </div>
+                                <div className="hidden sm:flex pb-[2px]">
+                                    <button
                                         className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700"
                                         title="My timetable"
                                         aria-label="Load my timetable"
                                         onClick={() => {
                                             setSelectedUser(null);
+                                            setSelectedClass(null);
                                             setQueryText('');
                                             setStart(fmtLocal(new Date())); // Return to current week
-                                            loadMine();
                                         }}
                                     >
                                         <svg
@@ -1198,15 +1487,51 @@ export default function Dashboard({
                                         <path d="m21 21-4.35-4.35" />
                                     </svg>
                                 </button>
+                                <button
+                                    type="button"
+                                    className="rounded-md p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    aria-label="View my class timetable"
+                                    onClick={() => {
+                                        setMobileSearchOpen(false);
+                                        handleViewMyClass();
+                                    }}
+                                    disabled={!primaryClass}
+                                >
+                                    <svg
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    >
+                                        <rect
+                                            x="4"
+                                            y="5"
+                                            width="16"
+                                            height="6"
+                                            rx="2"
+                                        />
+                                        <rect
+                                            x="4"
+                                            y="13"
+                                            width="16"
+                                            height="6"
+                                            rx="2"
+                                        />
+                                    </svg>
+                                </button>
 
                                 <button
                                     className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700"
                                     title="My timetable"
                                     onClick={() => {
                                         setSelectedUser(null);
+                                        setSelectedClass(null);
                                         setQueryText('');
                                         setStart(fmtLocal(new Date())); // Return to current week
-                                        loadMine();
                                     }}
                                     aria-label="Load my timetable"
                                 >
@@ -1342,6 +1667,7 @@ export default function Dashboard({
                             isOnboardingActive={isOnboardingOpen}
                             onRefresh={handleRefresh}
                             isRateLimited={retrySeconds !== null}
+                            isClassView={!!selectedClass}
                         />
                     </div>
                 </section>
@@ -1464,8 +1790,8 @@ export default function Dashboard({
                                             Search for students
                                         </p>
                                         <p className="text-slate-500 dark:text-slate-400 text-sm">
-                                            Start typing to find students and
-                                            view their timetables
+                                            Start typing to find a student and
+                                            view their timetable
                                         </p>
                                     </div>
                                 );
@@ -1584,7 +1910,7 @@ export default function Dashboard({
                                 <div className="space-y-2">
                                     {results.map((r, index) => (
                                         <div
-                                            key={r.id}
+                                            key={`${r.type}-${r.id}`}
                                             className="animate-fade-in"
                                             style={{
                                                 animationDelay: `${
@@ -1595,49 +1921,73 @@ export default function Dashboard({
                                             <button
                                                 className="w-full rounded-xl p-4 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm hover:shadow-md group"
                                                 onClick={() => {
-                                                    setSelectedUser(r);
-                                                    setQueryText('');
-                                                    setResults([]);
-                                                    setMobileSearchOpen(false);
-                                                    if (r.id !== user.id)
-                                                        loadUser(r.id);
-                                                    else loadMine();
+                                                    if (r.type === 'user') {
+                                                        setSelectedUser(r);
+                                                        setSelectedClass(null);
+                                                        setQueryText('');
+                                                        setResults([]);
+                                                        setMobileSearchOpen(
+                                                            false
+                                                        );
+                                                        if (r.id !== user.id)
+                                                            loadUser(r.id);
+                                                        else loadMine();
+                                                    } else {
+                                                        setSelectedClass({
+                                                            id: r.id,
+                                                            name: r.name,
+                                                            longName:
+                                                                r.longName,
+                                                        });
+                                                        setSelectedUser(null);
+                                                        setQueryText('');
+                                                        setResults([]);
+                                                        setMobileSearchOpen(
+                                                            false
+                                                        );
+                                                        loadClass(r.id);
+                                                    }
                                                 }}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
-                                                        {(
-                                                            r.displayName ||
-                                                            r.username
-                                                        )
-                                                            .charAt(0)
-                                                            .toUpperCase()}
+                                                    <div
+                                                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md ${
+                                                            r.type === 'user'
+                                                                ? 'bg-gradient-to-br from-sky-500 to-indigo-600'
+                                                                : 'bg-gradient-to-br from-emerald-500 to-teal-600'
+                                                        }`}
+                                                    >
+                                                        {r.type === 'user'
+                                                            ? (
+                                                                  r.displayName ||
+                                                                  r.username
+                                                              )
+                                                                  .charAt(0)
+                                                                  .toUpperCase()
+                                                            : r.name
+                                                                  .substring(
+                                                                      0,
+                                                                      2
+                                                                  )
+                                                                  .toUpperCase()}
                                                     </div>
                                                     <div className="flex-1">
                                                         <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
-                                                            {r.displayName ||
-                                                                r.username}
+                                                            {r.type === 'user'
+                                                                ? r.displayName ||
+                                                                  r.username
+                                                                : r.name}
                                                         </div>
-                                                        {r.displayName && (
-                                                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                                                                @{r.username}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-slate-400 dark:text-slate-500 group-hover:text-sky-500 dark:group-hover:text-sky-400 transition-colors">
-                                                        <svg
-                                                            className="w-5 h-5"
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            viewBox="0 0 24 24"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth="2"
-                                                                d="M9 5l7 7-7 7"
-                                                            />
-                                                        </svg>
+                                                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                                                            {r.type === 'user'
+                                                                ? r.displayName
+                                                                    ? `@${r.username}`
+                                                                    : 'Student'
+                                                                : r.longName !==
+                                                                  r.name
+                                                                ? r.longName
+                                                                : 'Class'}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </button>
@@ -1649,7 +1999,6 @@ export default function Dashboard({
                     </div>
                 </div>
             )}
-
             {fallbackNotice && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"

@@ -10,6 +10,7 @@ import type {
     NotificationSettings,
     AdminNotificationSettings,
     Holiday,
+    TimetableResponse,
 } from './types';
 
 // Global logout handler - will be set by App.tsx
@@ -908,5 +909,42 @@ export async function updateUserPreferences(
             token,
             body: JSON.stringify(prefs),
         }
+    );
+}
+
+// Class timetable API functions
+export type ClassInfo = {
+    id: number;
+    name: string;
+    longName: string;
+};
+
+export async function getUserClasses(
+    token: string
+): Promise<{ classes: ClassInfo[] }> {
+    return api<{ classes: ClassInfo[] }>('/api/timetable/classes', { token });
+}
+
+export async function getClassTimetable(
+    token: string,
+    classId: number,
+    start?: string,
+    end?: string
+): Promise<TimetableResponse> {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    const query = params.toString();
+    const url = `/api/timetable/class/${classId}${query ? `?${query}` : ''}`;
+    return api<TimetableResponse>(url, { token });
+}
+
+export async function searchClasses(
+    token: string,
+    query: string
+): Promise<{ classes: ClassInfo[] }> {
+    return api<{ classes: ClassInfo[] }>(
+        `/api/timetable/classes/search?q=${encodeURIComponent(query)}`,
+        { token }
     );
 }
