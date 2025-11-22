@@ -1575,8 +1575,8 @@ const MIN_FALLBACK_INLINE_WIDTH = 120; // Conservative estimate if measurement f
 const WRAP_ENTER_SLACK = 2; // Smaller slack => wraps sooner when tight
 const WRAP_EXIT_SLACK = 8; // Larger surplus required to unwrap to avoid oscillation
 // Additional column-based heuristic: even if intrinsic fits, force vertical when the whole column is narrow
-const FORCE_WRAP_COLUMN_WIDTH = 90; // px - below this force vertical layout
-const FORCE_UNWRAP_COLUMN_WIDTH = 100; // px - need to exceed this to allow reverting to single line
+const FORCE_WRAP_COLUMN_WIDTH = 180; // px - below this force vertical layout
+const FORCE_UNWRAP_COLUMN_WIDTH = 190; // px - need to exceed this to allow reverting to single line
 
 const ResponsiveTimeFrame: FC<{
     startMin: number;
@@ -1630,10 +1630,10 @@ const ResponsiveTimeFrame: FC<{
                 const style = getComputedStyle(lessonEl);
                 const padLeft = parseFloat(style.paddingLeft) || 0;
                 const padRight = parseFloat(style.paddingRight) || 0;
-                // Reserve ~4px for potential indicators / internal padding to push earlier wrapping.
+                // Reserve ~30px for potential indicators / internal padding to push earlier wrapping.
                 const available = Math.max(
                     0,
-                    columnWidth - padLeft - padRight - 4
+                    columnWidth - padLeft - padRight - 30
                 );
 
                 // Column width based forced state overrides intrinsic logic (with hysteresis)
