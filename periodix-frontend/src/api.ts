@@ -10,6 +10,7 @@ import type {
     NotificationSettings,
     AdminNotificationSettings,
     Holiday,
+    TimetableResponse,
 } from './types';
 
 // Global logout handler - will be set by App.tsx
@@ -929,11 +930,11 @@ export async function getClassTimetable(
     classId: number,
     start?: string,
     end?: string
-): Promise<any> {
+): Promise<TimetableResponse> {
     const params = new URLSearchParams();
     if (start) params.append('start', start);
     if (end) params.append('end', end);
     const query = params.toString();
     const url = `/api/timetable/class/${classId}${query ? `?${query}` : ''}`;
-    return api<any>(url, { token });
+    return api<TimetableResponse>(url, { token });
 }

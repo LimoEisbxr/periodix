@@ -987,10 +987,14 @@ export default function Dashboard({
             if (!node) return;
             if (!node.contains(e.target as Node)) {
                 if (results.length) setResults([]);
+                if (classResults.length) setClassResults([]);
             }
         };
         const handleKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && results.length) setResults([]);
+            if (e.key === 'Escape') {
+                if (results.length) setResults([]);
+                if (classResults.length) setClassResults([]);
+            }
         };
         document.addEventListener('mousedown', handlePointer);
         document.addEventListener('touchstart', handlePointer);
@@ -1000,7 +1004,7 @@ export default function Dashboard({
             document.removeEventListener('touchstart', handlePointer);
             document.removeEventListener('keydown', handleKey);
         };
-    }, [results.length, mobileSearchOpen]);
+    }, [results.length, classResults.length, mobileSearchOpen]);
 
     return (
         <div className={'min-h-screen'}>
@@ -1142,10 +1146,49 @@ export default function Dashboard({
                                     <label className="label sm:text-sm text-[11px]">
                                         Search
                                     </label>
+                                    {/* Search mode toggle */}
+                                    <div className="flex gap-1 mb-2">
+                                        <button
+                                            type="button"
+                                            className={`px-3 py-1 text-xs rounded ${
+                                                searchMode === 'users'
+                                                    ? 'bg-blue-500 text-white'
+                                                    : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                                            }`}
+                                            onClick={() => {
+                                                setSearchMode('users');
+                                                setQueryText('');
+                                                setResults([]);
+                                                setClassResults([]);
+                                            }}
+                                        >
+                                            Students
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`px-3 py-1 text-xs rounded ${
+                                                searchMode === 'classes'
+                                                    ? 'bg-blue-500 text-white'
+                                                    : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                                            }`}
+                                            onClick={() => {
+                                                setSearchMode('classes');
+                                                setQueryText('');
+                                                setResults([]);
+                                                setClassResults([]);
+                                            }}
+                                        >
+                                            Classes
+                                        </button>
+                                    </div>
                                     <div className="relative">
                                         <input
                                             className="input text-sm pr-8"
-                                            placeholder="Student…"
+                                            placeholder={
+                                                searchMode === 'users'
+                                                    ? 'Student…'
+                                                    : 'Class…'
+                                            }
                                             value={queryText}
                                             onChange={(e) =>
                                                 setQueryText(e.target.value)
@@ -1188,52 +1231,101 @@ export default function Dashboard({
                                                 ×
                                             </button>
                                         )}
-                                        {results.length > 0 && (
-                                            <div className="absolute z-40 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
-                                                <ul className="max-h-60 overflow-auto py-1 text-sm">
-                                                    {results.map((r) => (
-                                                        <li key={r.id}>
-                                                            <button
-                                                                className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
-                                                                onClick={() => {
-                                                                    setSelectedUser(
-                                                                        r
-                                                                    );
-                                                                    setQueryText(
-                                                                        r.displayName ||
-                                                                            r.username
-                                                                    );
-                                                                    setResults(
-                                                                        []
-                                                                    );
-                                                                    if (
-                                                                        r.id !==
-                                                                        user.id
-                                                                    )
-                                                                        loadUser(
-                                                                            r.id
+                                        {/* User results */}
+                                        {searchMode === 'users' &&
+                                            results.length > 0 && (
+                                                <div className="absolute z-40 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                                                    <ul className="max-h-60 overflow-auto py-1 text-sm">
+                                                        {results.map((r) => (
+                                                            <li key={r.id}>
+                                                                <button
+                                                                    className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                                                                    onClick={() => {
+                                                                        setSelectedUser(
+                                                                            r
                                                                         );
-                                                                    else
-                                                                        loadMine();
-                                                                }}
-                                                            >
-                                                                <div className="font-medium">
-                                                                    {r.displayName ||
-                                                                        r.username}
-                                                                </div>
-                                                                {r.displayName && (
-                                                                    <div className="text-xs text-slate-500">
-                                                                        {
-                                                                            r.username
-                                                                        }
+                                                                        setSelectedClass(
+                                                                            null
+                                                                        );
+                                                                        setQueryText(
+                                                                            r.displayName ||
+                                                                                r.username
+                                                                        );
+                                                                        setResults(
+                                                                            []
+                                                                        );
+                                                                        if (
+                                                                            r.id !==
+                                                                            user.id
+                                                                        )
+                                                                            loadUser(
+                                                                                r.id
+                                                                            );
+                                                                        else
+                                                                            loadMine();
+                                                                    }}
+                                                                >
+                                                                    <div className="font-medium">
+                                                                        {r.displayName ||
+                                                                            r.username}
                                                                     </div>
-                                                                )}
-                                                            </button>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
+                                                                    {r.displayName && (
+                                                                        <div className="text-xs text-slate-500">
+                                                                            {
+                                                                                r.username
+                                                                            }
+                                                                        </div>
+                                                                    )}
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        {/* Class results */}
+                                        {searchMode === 'classes' &&
+                                            classResults.length > 0 && (
+                                                <div className="absolute z-40 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                                                    <ul className="max-h-60 overflow-auto py-1 text-sm">
+                                                        {classResults.map((c) => (
+                                                            <li key={c.id}>
+                                                                <button
+                                                                    className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                                                                    onClick={() => {
+                                                                        setSelectedClass(
+                                                                            c
+                                                                        );
+                                                                        setSelectedUser(
+                                                                            null
+                                                                        );
+                                                                        setQueryText(
+                                                                            c.name
+                                                                        );
+                                                                        setClassResults(
+                                                                            []
+                                                                        );
+                                                                        loadClass(
+                                                                            c.id
+                                                                        );
+                                                                    }}
+                                                                >
+                                                                    <div className="font-medium">
+                                                                        {c.name}
+                                                                    </div>
+                                                                    {c.longName !==
+                                                                        c.name && (
+                                                                        <div className="text-xs text-slate-500">
+                                                                            {
+                                                                                c.longName
+                                                                            }
+                                                                        </div>
+                                                                    )}
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
                                         {searchError &&
                                             queryText.trim().length >= 2 && (
                                                 <div className="absolute z-40 mt-1 w-full rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-600 dark:bg-amber-900/40 dark:text-amber-200">
@@ -1254,6 +1346,7 @@ export default function Dashboard({
                                         aria-label="Load my timetable"
                                         onClick={() => {
                                             setSelectedUser(null);
+                                            setSelectedClass(null);
                                             setQueryText('');
                                             setStart(fmtLocal(new Date())); // Return to current week
                                             loadMine();
@@ -1450,12 +1543,51 @@ export default function Dashboard({
                 <div className="sm:hidden fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col">
                     {/* Header with gradient blur effect */}
                     <div className="header-blur p-4 border-b border-slate-200/60 dark:border-slate-700/60">
+                        {/* Search mode toggle */}
+                        <div className="flex gap-2 mb-3">
+                            <button
+                                type="button"
+                                className={`flex-1 px-4 py-2 text-sm rounded-lg font-medium ${
+                                    searchMode === 'users'
+                                        ? 'bg-blue-500 text-white'
+                                        : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                                }`}
+                                onClick={() => {
+                                    setSearchMode('users');
+                                    setQueryText('');
+                                    setResults([]);
+                                    setClassResults([]);
+                                }}
+                            >
+                                Students
+                            </button>
+                            <button
+                                type="button"
+                                className={`flex-1 px-4 py-2 text-sm rounded-lg font-medium ${
+                                    searchMode === 'classes'
+                                        ? 'bg-blue-500 text-white'
+                                        : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                                }`}
+                                onClick={() => {
+                                    setSearchMode('classes');
+                                    setQueryText('');
+                                    setResults([]);
+                                    setClassResults([]);
+                                }}
+                            >
+                                Classes
+                            </button>
+                        </div>
                         <div className="flex items-center gap-3">
                             <div className="flex-1 relative">
                                 <input
                                     id="mobile-search-input"
                                     className="w-full rounded-xl border border-slate-300 dark:border-slate-600 bg-white/95 dark:bg-slate-800/95 px-4 py-3 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 text-base shadow-sm"
-                                    placeholder="Search for a student..."
+                                    placeholder={
+                                        searchMode === 'users'
+                                            ? 'Search for a student...'
+                                            : 'Search for a class...'
+                                    }
                                     value={queryText}
                                     onChange={(e) =>
                                         setQueryText(e.target.value)
@@ -1528,6 +1660,7 @@ export default function Dashboard({
                                     setMobileSearchOpen(false);
                                     setQueryText(''); // Clear search when closing
                                     setResults([]); // Clear results when closing
+                                    setClassResults([]); // Clear class results when closing
                                 }}
                                 aria-label="Close search"
                             >
@@ -1559,11 +1692,14 @@ export default function Dashboard({
                                             </svg>
                                         </div>
                                         <p className="text-slate-600 dark:text-slate-300 text-lg font-medium mb-2">
-                                            Search for students
+                                            {searchMode === 'users'
+                                                ? 'Search for students'
+                                                : 'Search for classes'}
                                         </p>
                                         <p className="text-slate-500 dark:text-slate-400 text-sm">
-                                            Start typing to find students and
-                                            view their timetables
+                                            {searchMode === 'users'
+                                                ? 'Start typing to find students and view their timetables'
+                                                : 'Start typing to find classes and view their timetables'}
                                         </p>
                                     </div>
                                 );
@@ -1651,7 +1787,11 @@ export default function Dashboard({
                                     </div>
                                 );
                             }
-                            if (results.length === 0) {
+                            if (
+                                searchMode === 'users'
+                                    ? results.length === 0
+                                    : classResults.length === 0
+                            ) {
                                 return (
                                     <div className="flex flex-col items-center justify-center py-12 text-center">
                                         <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
@@ -1680,67 +1820,107 @@ export default function Dashboard({
                             }
                             return (
                                 <div className="space-y-2">
-                                    {results.map((r, index) => (
-                                        <div
-                                            key={r.id}
-                                            className="animate-fade-in"
-                                            style={{
-                                                animationDelay: `${
-                                                    index * 50
-                                                }ms`,
-                                            }}
-                                        >
-                                            <button
-                                                className="w-full rounded-xl p-4 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm hover:shadow-md group"
-                                                onClick={() => {
-                                                    setSelectedUser(r);
-                                                    setQueryText('');
-                                                    setResults([]);
-                                                    setMobileSearchOpen(false);
-                                                    if (r.id !== user.id)
-                                                        loadUser(r.id);
-                                                    else loadMine();
-                                                }}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
-                                                        {(
-                                                            r.displayName ||
-                                                            r.username
-                                                        )
-                                                            .charAt(0)
-                                                            .toUpperCase()}
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
-                                                            {r.displayName ||
-                                                                r.username}
-                                                        </div>
-                                                        {r.displayName && (
-                                                            <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                                                                @{r.username}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-slate-400 dark:text-slate-500 group-hover:text-sky-500 dark:group-hover:text-sky-400 transition-colors">
-                                                        <svg
-                                                            className="w-5 h-5"
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            viewBox="0 0 24 24"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth="2"
-                                                                d="M9 5l7 7-7 7"
-                                                            />
-                                                        </svg>
-                                                    </div>
-                                                </div>
-                                            </button>
-                                        </div>
-                                    ))}
+                                    {searchMode === 'users'
+                                        ? results.map((r, index) => (
+                                              <div
+                                                  key={r.id}
+                                                  className="animate-fade-in"
+                                                  style={{
+                                                      animationDelay: `${
+                                                          index * 50
+                                                      }ms`,
+                                                  }}
+                                              >
+                                                  <button
+                                                      className="w-full rounded-xl p-4 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm hover:shadow-md group"
+                                                      onClick={() => {
+                                                          setSelectedUser(r);
+                                                          setSelectedClass(null);
+                                                          setQueryText('');
+                                                          setResults([]);
+                                                          setClassResults([]);
+                                                          setMobileSearchOpen(
+                                                              false
+                                                          );
+                                                          if (r.id !== user.id)
+                                                              loadUser(r.id);
+                                                          else loadMine();
+                                                      }}
+                                                  >
+                                                      <div className="flex items-center gap-3">
+                                                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                                                              {(
+                                                                  r.displayName ||
+                                                                  r.username
+                                                              )
+                                                                  .charAt(0)
+                                                                  .toUpperCase()}
+                                                          </div>
+                                                          <div className="flex-1">
+                                                              <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
+                                                                  {r.displayName ||
+                                                                      r.username}
+                                                              </div>
+                                                              {r.displayName && (
+                                                                  <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                      @
+                                                                      {
+                                                                          r.username
+                                                                      }
+                                                                  </div>
+                                                              )}
+                                                          </div>
+                                                      </div>
+                                                  </button>
+                                              </div>
+                                          ))
+                                        : classResults.map((c, index) => (
+                                              <div
+                                                  key={c.id}
+                                                  className="animate-fade-in"
+                                                  style={{
+                                                      animationDelay: `${
+                                                          index * 50
+                                                      }ms`,
+                                                  }}
+                                              >
+                                                  <button
+                                                      className="w-full rounded-xl p-4 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm hover:shadow-md group"
+                                                      onClick={() => {
+                                                          setSelectedClass(c);
+                                                          setSelectedUser(null);
+                                                          setQueryText('');
+                                                          setResults([]);
+                                                          setClassResults([]);
+                                                          setMobileSearchOpen(
+                                                              false
+                                                          );
+                                                          loadClass(c.id);
+                                                      }}
+                                                  >
+                                                      <div className="flex items-center gap-3">
+                                                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                                                              {c.name
+                                                                  .charAt(0)
+                                                                  .toUpperCase()}
+                                                          </div>
+                                                          <div className="flex-1">
+                                                              <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors">
+                                                                  {c.name}
+                                                              </div>
+                                                              {c.longName !==
+                                                                  c.name && (
+                                                                  <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                      {
+                                                                          c.longName
+                                                                      }
+                                                                  </div>
+                                                              )}
+                                                          </div>
+                                                      </div>
+                                                  </button>
+                                              </div>
+                                          ))}
                                 </div>
                             );
                         })()}
