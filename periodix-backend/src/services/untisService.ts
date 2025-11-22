@@ -601,12 +601,103 @@ async function fetchAndStoreUntis(args: {
             });
             try {
                 examData = await untis.getExamsForRange(sd, ed);
+                // Force fallback if standard API returns empty, as it often returns [] instead of 403/error
+                if (!Array.isArray(examData) || examData.length === 0) {
+                    throw new Error(
+                        'Standard API returned no exams, forcing fallback'
+                    );
+                }
             } catch (e: any) {
                 console.warn(
-                    '[timetable] getExamsForRange failed, continuing without exams',
+                    '[timetable] getExamsForRange failed or empty, trying Public API fallback',
                     e?.message
                 );
-                examData = [];
+                try {
+                    examData = await fetchExamsFromPublicApi(untis, sd, ed);
+                    console.debug(
+                        `[timetable] Public API fallback found ${examData.length} exams`
+                    );
+                } catch (e2: any) {
+                    console.warn(
+                        '[timetable] Public API fallback failed',
+                        e2?.message
+                    );
+                    examData = [];
+                }
+            }
+        }
+
+        // Fallback: Extract exams from timetable lessons if API failed or returned nothing
+        if (
+            (!examData || examData.length === 0) &&
+            lessonsData &&
+            lessonsData.length > 0
+        ) {
+            console.debug('[timetable] scanning lessons for exams (fallback)');
+
+            // 1. Check for explicit exam objects (Public API style)
+            // Some Untis instances return exams embedded in lessons with 'is.exam', 'cellState: EXAM', or an 'exam' object
+            const explicitExams = lessonsData.filter(
+                (l: any) =>
+                    l.is?.exam === true ||
+                    l.cellState === 'EXAM' ||
+                    (l.exam && typeof l.exam === 'object')
+            );
+
+            if (explicitExams.length > 0) {
+                console.debug(
+                    `[timetable] found ${explicitExams.length} explicit exams in lessons`
+                );
+                examData = explicitExams.map((l: any) => ({
+                    id: l.exam?.id || l.id,
+                    date: l.exam?.date || l.date,
+                    startTime: l.startTime,
+                    endTime: l.endTime,
+                    subject: l.su?.[0]
+                        ? { id: l.su[0].id, name: l.su[0].name }
+                        : undefined,
+                    teachers: l.te?.map((t: any) => t.name),
+                    rooms: l.ro?.map((r: any) => r.name),
+                    name: l.exam?.name || 'Exam',
+                    text: l.lstext || l.info || l.exam?.text || 'Exam',
+                }));
+            } else {
+                // 2. Keyword scan (Legacy fallback)
+                // Only use this if no explicit exams are found, to avoid false positives (like notes about exams)
+                const potentialExams = lessonsData.filter((l: any) => {
+                    const txt = (l.lstext || l.info || '').toLowerCase();
+                    const type = (l.activityType || '').toLowerCase();
+                    return (
+                        type.includes('exam') ||
+                        type.includes('klausur') ||
+                        txt.includes('klausur') ||
+                        txt.includes('test') ||
+                        txt.includes('exam')
+                    );
+                });
+
+                if (potentialExams.length > 0) {
+                    console.debug(
+                        `[timetable] found ${potentialExams.length} potential exams via keywords`
+                    );
+                    // Map lessons to Exam structure
+                    examData = potentialExams.map((l: any) => ({
+                        id: l.id, // Use lesson ID as exam ID
+                        date: l.date,
+                        startTime: l.startTime,
+                        endTime: l.endTime,
+                        subject: l.su?.[0]
+                            ? { id: l.su[0].id, name: l.su[0].name }
+                            : undefined,
+                        teachers: l.te?.map((t: any) => t.name),
+                        rooms: l.ro?.map((r: any) => r.name),
+                        name: 'Exam', // Generic name
+                        text:
+                            l.lstext ||
+                            l.info ||
+                            'Exam detected from timetable',
+                    }));
+                }
             }
         }
     } catch (e: any) {
@@ -727,9 +818,11 @@ export async function getOrFetchTimetableRange(args: {
     let sd = normStart;
     let ed = normEnd;
     let cached: any = undefined;
+
     if (sd && ed) {
         try {
-            cached = await getCachedRange(target.id, sd, ed);
+            // TEMPORARY DEBUG: Disable cache to force fresh fetch and exam enrichment
+            // cached = await getCachedRange(target.id, sd, ed);
         } catch (e) {
             console.warn('[timetable] cache lookup failed', e);
         }
@@ -1063,16 +1156,38 @@ async function storeHomeworkData(
     }
 }
 
-async function storeExamData(userId: string, examData: any[]) {
+export async function storeExamData(userId: string, examData: any[]) {
+    // Group exams by ID to handle multi-lesson exams
+    const examsById = new Map<number, any[]>();
     for (const exam of examData) {
+        if (!examsById.has(exam.id)) {
+            examsById.set(exam.id, []);
+        }
+        examsById.get(exam.id)?.push(exam);
+    }
+
+    for (const [id, exams] of examsById) {
+        // Sort by start time to find range
+        exams.sort((a, b) => a.startTime - b.startTime);
+
+        const first = exams[0];
+        const last = exams[exams.length - 1];
+
+        // Use the aggregated range
+        const startTime = first.startTime;
+        const endTime = last.endTime;
+
+        // Use properties from the first entry (assuming they are consistent)
+        const exam = first;
+
         try {
             await (prisma as any).exam.upsert({
                 where: { userId_untisId: { userId, untisId: exam.id } },
                 update: {
                     date: exam.date,
-                    startTime: exam.startTime,
-                    endTime: exam.endTime,
-                    subjectId: exam.subject?.id,
+                    startTime: startTime,
+                    endTime: endTime,
+                    subjectId: exam.subject?.id || 0,
                     subject: exam.subject?.name || '',
                     name: exam.name || '',
                     text: exam.text,
@@ -1085,9 +1200,9 @@ async function storeExamData(userId: string, examData: any[]) {
                     untisId: exam.id,
                     userId,
                     date: exam.date,
-                    startTime: exam.startTime,
-                    endTime: exam.endTime,
-                    subjectId: exam.subject?.id,
+                    startTime: startTime,
+                    endTime: endTime,
+                    subjectId: exam.subject?.id || 0,
                     subject: exam.subject?.name || '',
                     name: exam.name || '',
                     text: exam.text,
@@ -1176,7 +1291,7 @@ async function enrichLessonsWithHomeworkAndExams(
     };
 
     // Enrich lessons with homework and exam data
-    return lessons.map((lesson) => {
+    const lessonsWithCandidates = lessons.map((lesson) => {
         const subjectName = lesson.su?.[0]?.name;
         const lessonHomework = homework
             .filter((hw: any) => {
@@ -1211,11 +1326,40 @@ async function enrichLessonsWithHomeworkAndExams(
             }));
 
         const lessonExams = exams
-            .filter(
-                (exam: any) =>
-                    exam.date === lesson.date &&
-                    exam.subject === lesson.su?.[0]?.name
-            )
+            .filter((exam: any) => {
+                if (exam.date !== lesson.date) return false;
+                // Do not attach exams to cancelled lessons
+                if (lesson.code === 'cancelled') return false;
+
+                // 1. Try exact subject match (case insensitive)
+                const subjectMatch =
+                    exam.subject &&
+                    lesson.su?.[0]?.name &&
+                    exam.subject.toLowerCase() ===
+                        lesson.su[0].name.toLowerCase();
+
+                if (subjectMatch) {
+                    return true;
+                }
+
+                // 2. If subjects don't match (or one is missing), check for time overlap
+                // This handles cases where exam subject might be generic or missing
+                // Overlap: (StartA <= EndB) and (EndA >= StartB)
+                const examStart = exam.startTime;
+                const examEnd = exam.endTime;
+                const lessonStart = lesson.startTime;
+                const lessonEnd = lesson.endTime;
+
+                if (examStart < lessonEnd && examEnd > lessonStart) {
+                    // If exam has a subject and lesson has a DIFFERENT subject, do not match
+                    if (exam.subject && lesson.su?.[0]?.name && !subjectMatch) {
+                        return false;
+                    }
+                    return true;
+                }
+
+                return false;
+            })
             .map((exam: any) => ({
                 id: exam.untisId,
                 date: exam.date,
@@ -1235,6 +1379,240 @@ async function enrichLessonsWithHomeworkAndExams(
             exams: lessonExams.length > 0 ? lessonExams : undefined,
         };
     });
+
+    // Pruning: Resolve conflicts where an exam is attached to multiple overlapping lessons
+    // This happens when an exam (especially one without a specific subject) matches multiple lessons in the same time slot.
+    // We use heuristics to pick the "best" lesson for the exam.
+
+    const examToLessons = new Map<number, any[]>();
+    for (const l of lessonsWithCandidates) {
+        if (l.exams) {
+            for (const e of l.exams) {
+                if (!examToLessons.has(e.id)) examToLessons.set(e.id, []);
+                examToLessons.get(e.id)?.push(l);
+            }
+        }
+    }
+
+    const removals = new Set<string>(); // Set of "lessonId_examId" to remove
+
+    for (const [examId, candidateLessons] of examToLessons) {
+        // Compare every pair of lessons that have this exam
+        for (let i = 0; i < candidateLessons.length; i++) {
+            for (let j = i + 1; j < candidateLessons.length; j++) {
+                const l1 = candidateLessons[i];
+                const l2 = candidateLessons[j];
+
+                // Check for time overlap between the two lessons
+                // (StartA < EndB) and (EndA > StartB)
+                if (l1.startTime < l2.endTime && l1.endTime > l2.startTime) {
+                    // They overlap. Determine which one is a better fit for this exam.
+
+                    // Get the exam object (from l1, assuming identical across lessons)
+                    const exam = l1.exams.find((e: any) => e.id === examId);
+
+                    let l1Score = 0;
+                    let l2Score = 0;
+
+                    // Heuristic 1: Subject Match (Highest Priority)
+                    // If the exam has a subject, prefer the lesson with matching subject
+                    if (exam && exam.subject && exam.subject.name) {
+                        const eSub = exam.subject.name.toLowerCase();
+                        const s1 = l1.su?.[0]?.name?.toLowerCase();
+                        const s2 = l2.su?.[0]?.name?.toLowerCase();
+
+                        if (s1 === eSub) l1Score += 10;
+                        if (s2 === eSub) l2Score += 10;
+                    }
+
+                    // Heuristic 2: Teacher Presence (Medium Priority)
+                    // Prefer lessons that have a valid teacher assigned (likely not cancelled/empty)
+                    // "---" or "?" are often placeholders for cancelled/substituted lessons without a teacher
+                    const hasValidTeacher = (l: any) =>
+                        l.te &&
+                        l.te.some(
+                            (t: any) =>
+                                t.name &&
+                                t.name.trim() !== '---' &&
+                                t.name.trim() !== '?'
+                        );
+
+                    if (hasValidTeacher(l1)) l1Score += 5;
+                    if (hasValidTeacher(l2)) l2Score += 5;
+
+                    // Heuristic 3: Subject Presence (Low Priority)
+                    // Prefer lessons that have a subject assigned
+                    if (l1.su && l1.su.length > 0) l1Score += 1;
+                    if (l2.su && l2.su.length > 0) l2Score += 1;
+
+                    // Mark the loser for removal
+                    if (l1Score > l2Score) {
+                        removals.add(`${l2.id}_${examId}`);
+                    } else if (l2Score > l1Score) {
+                        removals.add(`${l1.id}_${examId}`);
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply removals
+    return lessonsWithCandidates.map((l) => {
+        if (!l.exams) return l;
+        const filtered = l.exams.filter(
+            (e: any) => !removals.has(`${l.id}_${e.id}`)
+        );
+        return {
+            ...l,
+            exams: filtered.length > 0 ? filtered : undefined,
+        };
+    });
+}
+
+export async function fetchExamsFromPublicApi(
+    untis: any,
+    start: Date,
+    end: Date
+) {
+    const exams: any[] = [];
+    // Clone start date
+    const current = new Date(start);
+
+    // Align to Monday of the start week
+    const day = current.getDay();
+    const diff = current.getDate() - day + (day === 0 ? -6 : 1);
+    current.setDate(diff);
+
+    // Loop until we pass the end date
+    // We add a buffer to end date to ensure we cover the last week if it's partial
+    const loopEnd = new Date(end);
+    loopEnd.setDate(loopEnd.getDate() + 7);
+
+    while (current <= end) {
+        try {
+            // getOwnTimetableForWeek is available on the untis instance
+            if (typeof untis.getOwnTimetableForWeek === 'function') {
+                console.debug(
+                    `[timetable] fetchExamsFromPublicApi: fetching week ${current.toISOString()}`
+                );
+                const weekLessons = await untis.getOwnTimetableForWeek(current);
+                console.debug(
+                    `[timetable] fetchExamsFromPublicApi: got ${weekLessons.length} lessons`
+                );
+
+                const explicitExams = weekLessons.filter(
+                    (l: any) =>
+                        l.is?.exam === true ||
+                        l.cellState === 'EXAM' ||
+                        (l.exam && typeof l.exam === 'object')
+                );
+
+                console.debug(
+                    `[timetable] fetchExamsFromPublicApi: found ${explicitExams.length} exams in week`
+                );
+
+                if (explicitExams.length > 0) {
+                    exams.push(
+                        ...explicitExams.map((l: any) => ({
+                            id: l.exam?.id || l.id,
+                            date: l.exam?.date || l.date,
+                            startTime: l.startTime,
+                            endTime: l.endTime,
+                            subject: l.su?.[0]
+                                ? { id: l.su[0].id, name: l.su[0].name }
+                                : undefined,
+                            teachers: l.te?.map((t: any) => t.name),
+                            rooms: l.ro?.map((r: any) => r.name),
+                            name: l.exam?.name || 'Exam',
+                            text: l.lstext || l.info || l.exam?.text || 'Exam',
+                        }))
+                    );
+                }
+            }
+        } catch (e) {
+            // Ignore errors for individual weeks (e.g. holidays, future years)
+        }
+        // Advance 7 days
+        current.setDate(current.getDate() + 7);
+    }
+    return exams;
+}
+
+export async function getUntisClientForUser(userId: string) {
+    const target: any = await (prisma as any).user.findUnique({
+        where: { id: userId },
+        select: {
+            id: true,
+            username: true,
+            untisSecretCiphertext: true,
+            untisSecretNonce: true,
+            untisSecretKeyVersion: true,
+        },
+    });
+    if (!target) throw new Error('User not found');
+
+    if (!target.untisSecretCiphertext || !target.untisSecretNonce) {
+        throw new AppError(
+            'User missing encrypted Untis credential',
+            400,
+            'MISSING_UNTIS_SECRET'
+        );
+    }
+    let untisPassword: string;
+    try {
+        untisPassword = decryptSecret({
+            ciphertext: target.untisSecretCiphertext as any,
+            nonce: target.untisSecretNonce as any,
+            keyVersion: target.untisSecretKeyVersion || 1,
+        });
+    } catch (e) {
+        throw new AppError(
+            'Credential decryption failed',
+            500,
+            'DECRYPT_FAILED'
+        );
+    }
+    const untis = new WebUntis(
+        UNTIS_DEFAULT_SCHOOL,
+        target.username,
+        untisPassword,
+        UNTIS_HOST
+    ) as any;
+
+    return untis;
+}
+
+export async function updateExamsForUser(
+    userId: string,
+    start: Date,
+    end: Date
+) {
+    const untis = await getUntisClientForUser(userId);
+    try {
+        await untis.login();
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
+
+    try {
+        const exams = await fetchExamsFromPublicApi(untis, start, end);
+        if (exams.length > 0) {
+            await storeExamData(userId, exams);
+        }
+        return exams.length;
+    } finally {
+        try {
+            await untis.logout();
+        } catch {}
+    }
 }
 
 /**

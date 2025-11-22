@@ -11,3 +11,5 @@ handy-commands.txt
 branding/Inter_28pt-SemiBold.ttf
 public/test-empty-timetable.html
 example_holiday_data.json
+periodix-backend/src/scripts/extractExams.ts
+example_exams.json
