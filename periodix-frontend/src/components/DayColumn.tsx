@@ -39,6 +39,59 @@ export type DayColumnProps = {
     isDeveloperMode?: boolean; // enables background click JSON popup
     suppressHolidayBanner?: boolean;
     isClassTimetable?: boolean;
+    onHolidayClick?: (holiday: Holiday) => void;
+};
+
+const SingleLineFitText: FC<{ text: string; className?: string }> = ({
+    text,
+    className,
+}) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const textRef = useRef<HTMLDivElement>(null);
+    const [scale, setScale] = useState(1);
+
+    useLayoutEffect(() => {
+        const container = containerRef.current;
+        const textEl = textRef.current;
+        if (!container || !textEl) return;
+
+        const compute = () => {
+            textEl.style.transform = 'none';
+            const cW = container.clientWidth;
+            const tW = textEl.scrollWidth;
+            if (tW > cW && tW > 0) {
+                setScale(cW / tW);
+            } else {
+                setScale(1);
+            }
+        };
+
+        compute();
+        const ro = new ResizeObserver(compute);
+        ro.observe(container);
+        return () => ro.disconnect();
+    }, [text]);
+
+    return (
+        <div
+            ref={containerRef}
+            className={`w-full flex justify-center overflow-hidden ${
+                className || ''
+            }`}
+        >
+            <div
+                ref={textRef}
+                style={{
+                    transform: `scale(${scale})`,
+                    transformOrigin: 'center',
+                    whiteSpace: 'nowrap',
+                    width: 'max-content',
+                }}
+            >
+                {text}
+            </div>
+        </div>
+    );
 };
 
 const DayColumn: FC<DayColumnProps> = ({
@@ -61,6 +114,7 @@ const DayColumn: FC<DayColumnProps> = ({
     isDeveloperMode = false,
     suppressHolidayBanner = false,
     isClassTimetable = false,
+    onHolidayClick,
 }) => {
     // Developer JSON modal state
     const [showDayJson, setShowDayJson] = useState(false);
@@ -382,6 +436,8 @@ const DayColumn: FC<DayColumnProps> = ({
         return current >= start && current <= end;
     });
 
+    const isSingleDayHoliday = holiday && holiday.startDate === holiday.endDate;
+
     return (
         <div
             key={keyStr}
@@ -457,17 +513,33 @@ const DayColumn: FC<DayColumnProps> = ({
 
             {/* Holiday Overlay */}
             {holiday && !suppressHolidayBanner && (
-                <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden rounded-xl">
+                <div
+                    className={`absolute inset-0 z-20 overflow-hidden rounded-xl ${
+                        onHolidayClick
+                            ? 'cursor-pointer'
+                            : 'pointer-events-none'
+                    }`}
+                    onClick={() => onHolidayClick?.(holiday)}
+                >
                     <div className="absolute inset-0 bg-yellow-50/90 dark:bg-yellow-900/40 backdrop-blur-[2px]" />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
-                        <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-full w-full">
-                            <h3 className="text-base sm:text-lg font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-1 whitespace-normal break-words">
-                                {holiday.longName}
-                            </h3>
-                            {holiday.name !== holiday.longName && (
-                                <p className="text-xs sm:text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                                    {holiday.name}
-                                </p>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-0.5 sm:p-4 text-center">
+                        <div className="bg-white/50 dark:bg-black/20 p-1 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-full w-full flex flex-col items-center justify-center">
+                            {isSingleDayHoliday ? (
+                                <SingleLineFitText
+                                    text={holiday.name}
+                                    className="text-sm sm:text-lg font-bold text-yellow-900 dark:text-yellow-100 leading-tight"
+                                />
+                            ) : (
+                                <>
+                                    <h3 className="text-sm sm:text-lg font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-1 whitespace-normal break-words">
+                                        {holiday.longName}
+                                    </h3>
+                                    {holiday.name !== holiday.longName && (
+                                        <p className="text-[10px] sm:text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                                            {holiday.name}
+                                        </p>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

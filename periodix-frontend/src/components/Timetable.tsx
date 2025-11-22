@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import type {
     Lesson,
     TimetableResponse,
@@ -18,6 +18,7 @@ import {
 import { setLessonColor } from '../api';
 import { isMobileViewport } from '../utils/responsive';
 import LessonModal from './LessonModal';
+import HolidayModal from './HolidayModal';
 import TimeAxis from './TimeAxis';
 import DayColumn from './DayColumn';
 import {
@@ -170,6 +171,15 @@ export default function Timetable({
     const [selectedGroup, setSelectedGroup] = useState<Lesson[] | null>(null);
     const [selectedIndexInGroup, setSelectedIndexInGroup] = useState<number>(0);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedHoliday, setSelectedHoliday] = useState<Holiday | null>(
+        null
+    );
+    const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
+
+    const handleHolidayClick = (holiday: Holiday) => {
+        setSelectedHoliday(holiday);
+        setIsHolidayModalOpen(true);
+    };
     // For privacy: non-admins always use their own (viewer) bucket, never the timetable owner's ID.
     // If we later have the viewer's concrete user id, swap 'self' with it; this prevents leaking offsets across viewed timetables.
     const storageKey = isAdmin
@@ -1425,50 +1435,63 @@ export default function Timetable({
         [lessonsByDay]
     );
 
-    // Check if the whole week is a holiday
-    const weekHolidayInfo = useMemo(() => {
-        if (!holidays.length) return null;
+    // Helper to check if a week is a full holiday
+    const getWeekHolidayInfo = useCallback(
+        (weekDays: Date[]) => {
+            if (!holidays.length) return null;
 
-        // Helper to check if a date is a holiday
-        const getHolidayForDate = (d: Date) => {
-            const current = new Date(d);
-            current.setHours(0, 0, 0, 0);
+            const getHolidayForDate = (d: Date) => {
+                const current = new Date(d);
+                current.setHours(0, 0, 0, 0);
 
-            return holidays.find((h) => {
-                // Parse yyyymmdd number to Date
-                const parseUntisDate = (n: number) => {
-                    const s = String(n);
-                    const y = Number(s.slice(0, 4));
-                    const mo = Number(s.slice(4, 6));
-                    const day = Number(s.slice(6, 8));
-                    return new Date(y, mo - 1, day);
-                };
+                return holidays.find((h) => {
+                    const parseUntisDate = (n: number) => {
+                        const s = String(n);
+                        const y = Number(s.slice(0, 4));
+                        const mo = Number(s.slice(4, 6));
+                        const day = Number(s.slice(6, 8));
+                        return new Date(y, mo - 1, day);
+                    };
 
-                const start = parseUntisDate(h.startDate);
-                const end = parseUntisDate(h.endDate);
-                start.setHours(0, 0, 0, 0);
-                end.setHours(0, 0, 0, 0);
-                return current >= start && current <= end;
-            });
-        };
+                    const start = parseUntisDate(h.startDate);
+                    const end = parseUntisDate(h.endDate);
+                    start.setHours(0, 0, 0, 0);
+                    end.setHours(0, 0, 0, 0);
+                    return current >= start && current <= end;
+                });
+            };
 
-        const dayHolidays = days.map((d) => getHolidayForDate(d));
-        const allDaysAreHolidays = dayHolidays.every((h) => !!h);
+            const dayHolidays = weekDays.map((d) => getHolidayForDate(d));
+            const allDaysAreHolidays = dayHolidays.every((h) => !!h);
 
-        if (!allDaysAreHolidays) return null;
+            if (!allDaysAreHolidays) return null;
 
-        // Check if it's the same holiday for all days
-        const firstHolidayName = dayHolidays[0]?.name;
-        const isSameHoliday = dayHolidays.every(
-            (h) => h?.name === firstHolidayName
-        );
+            const firstHolidayName = dayHolidays[0]?.name;
+            const isSameHoliday = dayHolidays.every(
+                (h) => h?.name === firstHolidayName
+            );
 
-        return {
-            isFullWeek: true,
-            isSameHoliday,
-            holiday: dayHolidays[0],
-        };
-    }, [days, holidays]);
+            return {
+                isFullWeek: true,
+                isSameHoliday,
+                holiday: dayHolidays[0],
+            };
+        },
+        [holidays]
+    );
+
+    const weekHolidayInfo = useMemo(
+        () => getWeekHolidayInfo(days),
+        [days, getWeekHolidayInfo]
+    );
+    const prevWeekHolidayInfo = useMemo(
+        () => getWeekHolidayInfo(prevWeekDays),
+        [prevWeekDays, getWeekHolidayInfo]
+    );
+    const nextWeekHolidayInfo = useMemo(
+        () => getWeekHolidayInfo(nextWeekDays),
+        [nextWeekDays, getWeekHolidayInfo]
+    );
 
     if (!data)
         return (
@@ -1816,10 +1839,51 @@ export default function Timetable({
                                                     isClassTimetable={
                                                         isClassView
                                                     }
+                                                    suppressHolidayBanner={
+                                                        prevWeekHolidayInfo?.isSameHoliday
+                                                    }
+                                                    onHolidayClick={
+                                                        handleHolidayClick
+                                                    }
                                                 />
                                             </div>
                                         );
                                     })}
+                                    {prevWeekHolidayInfo?.isSameHoliday &&
+                                        prevWeekHolidayInfo.holiday && (
+                                            <div
+                                                className="absolute inset-0 z-40 flex items-center justify-center p-4 cursor-pointer"
+                                                onClick={() =>
+                                                    handleHolidayClick(
+                                                        prevWeekHolidayInfo.holiday!
+                                                    )
+                                                }
+                                            >
+                                                <div className="absolute inset-0 bg-yellow-50/60 dark:bg-yellow-900/30 backdrop-blur-[1px] rounded-xl" />
+                                                <div className="relative bg-white/80 dark:bg-black/40 p-6 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-md text-center">
+                                                    <h3 className="text-xl font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-2">
+                                                        {
+                                                            prevWeekHolidayInfo
+                                                                .holiday
+                                                                .longName
+                                                        }
+                                                    </h3>
+                                                    {prevWeekHolidayInfo.holiday
+                                                        .name !==
+                                                        prevWeekHolidayInfo
+                                                            .holiday
+                                                            .longName && (
+                                                        <p className="text-base font-medium text-yellow-800 dark:text-yellow-200">
+                                                            {
+                                                                prevWeekHolidayInfo
+                                                                    .holiday
+                                                                    .name
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                 </div>
                                 {/* Current Week */}
                                 <div
@@ -1947,6 +2011,9 @@ export default function Timetable({
                                                     isClassTimetable={
                                                         isClassView
                                                     }
+                                                    onHolidayClick={
+                                                        handleHolidayClick
+                                                    }
                                                 />
                                             </div>
                                         );
@@ -1962,7 +2029,14 @@ export default function Timetable({
                                         )}
                                     {weekHolidayInfo?.isSameHoliday &&
                                         weekHolidayInfo.holiday && (
-                                            <div className="absolute inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+                                            <div
+                                                className="absolute inset-0 z-40 flex items-center justify-center p-4 cursor-pointer"
+                                                onClick={() =>
+                                                    handleHolidayClick(
+                                                        weekHolidayInfo.holiday!
+                                                    )
+                                                }
+                                            >
                                                 <div className="absolute inset-0 bg-yellow-50/60 dark:bg-yellow-900/30 backdrop-blur-[1px] rounded-xl" />
                                                 <div className="relative bg-white/80 dark:bg-black/40 p-6 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-md text-center">
                                                     <h3 className="text-xl font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-2">
@@ -2031,10 +2105,51 @@ export default function Timetable({
                                                     isClassTimetable={
                                                         isClassView
                                                     }
+                                                    suppressHolidayBanner={
+                                                        nextWeekHolidayInfo?.isSameHoliday
+                                                    }
+                                                    onHolidayClick={
+                                                        handleHolidayClick
+                                                    }
                                                 />
                                             </div>
                                         );
                                     })}
+                                    {nextWeekHolidayInfo?.isSameHoliday &&
+                                        nextWeekHolidayInfo.holiday && (
+                                            <div
+                                                className="absolute inset-0 z-40 flex items-center justify-center p-4 cursor-pointer"
+                                                onClick={() =>
+                                                    handleHolidayClick(
+                                                        nextWeekHolidayInfo.holiday!
+                                                    )
+                                                }
+                                            >
+                                                <div className="absolute inset-0 bg-yellow-50/60 dark:bg-yellow-900/30 backdrop-blur-[1px] rounded-xl" />
+                                                <div className="relative bg-white/80 dark:bg-black/40 p-6 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-md text-center">
+                                                    <h3 className="text-xl font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-2">
+                                                        {
+                                                            nextWeekHolidayInfo
+                                                                .holiday
+                                                                .longName
+                                                        }
+                                                    </h3>
+                                                    {nextWeekHolidayInfo.holiday
+                                                        .name !==
+                                                        nextWeekHolidayInfo
+                                                            .holiday
+                                                            .longName && (
+                                                        <p className="text-base font-medium text-yellow-800 dark:text-yellow-200">
+                                                            {
+                                                                nextWeekHolidayInfo
+                                                                    .holiday
+                                                                    .name
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                 </div>
                             </div>
                         </div>
@@ -2087,6 +2202,11 @@ export default function Timetable({
                 gradientOffsets={gradientOffsets}
                 onGradientOffsetChange={updateGradientOffset}
                 isOnboardingActive={isOnboardingActive}
+            />
+            <HolidayModal
+                holiday={selectedHoliday}
+                isOpen={isHolidayModalOpen}
+                onClose={() => setIsHolidayModalOpen(false)}
             />
         </div>
     );
