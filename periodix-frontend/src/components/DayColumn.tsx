@@ -806,13 +806,23 @@ const DayColumn: FC<DayColumnProps> = ({
                         : 80;
                     // Second threshold for very compact layout: move teacher to same row as subject
                     const MIN_COMPACT_DISPLAY_HEIGHT = isMobile
+                        ? 55
+                        : isClassTimetable
+                        ? 55
+                        : 55;
+                    // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
+                    const MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
+                        isMobile ? 55 : isClassTimetable ? 48 : 55;
+
+                    // Third threshold: replace teacher with room on the same row as subject (very tight space)
+                    const MIN_INLINE_ROOM_DISPLAY_HEIGHT = isMobile
                         ? 45
                         : isClassTimetable
                         ? 40
                         : 45;
-                    // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
-                    const MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : isClassTimetable ? 48 : 55;
+                    const MIN_INLINE_ROOM_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
+                        isMobile ? 55 : 55;
+
                     const availableSpace = heightPx - reservedBottomPx;
                     const canShowTimeFrame =
                         !isMobile && availableSpace >= MIN_TIME_DISPLAY_HEIGHT;
@@ -824,6 +834,13 @@ const DayColumn: FC<DayColumnProps> = ({
                             : MIN_COMPACT_DISPLAY_HEIGHT;
                     const shouldUseCompactLayout =
                         !isMobile && availableSpace <= compactThreshold;
+
+                    const inlineRoomThreshold =
+                        cancelled || irregular
+                            ? MIN_INLINE_ROOM_DISPLAY_HEIGHT_CANCELLED_IRREGULAR
+                            : MIN_INLINE_ROOM_DISPLAY_HEIGHT;
+                    const shouldUseInlineRoomLayout =
+                        !isMobile && availableSpace <= inlineRoomThreshold;
 
                     // Compute content padding so mobile remains centered when icons exist
                     // Desktop readability fix:
@@ -1361,48 +1378,83 @@ const DayColumn: FC<DayColumnProps> = ({
                                     >
                                         {shouldUseCompactLayout ? (
                                             // Compact layout: subject and teacher on same line
-                                            <div className="flex flex-wrap items-baseline gap-x-2">
-                                                <div
-                                                    className={`font-semibold leading-tight text-[13px] ${
-                                                        cancelled
-                                                            ? 'lesson-cancelled-subject'
-                                                            : ''
-                                                    }`}
-                                                >
-                                                    {displaySubject}
-                                                </div>
-                                                {(() => {
-                                                    if (
-                                                        !l.te ||
-                                                        l.te.length === 0
-                                                    )
-                                                        return null;
-                                                    return (
+                                            <>
+                                                <div className="flex flex-wrap items-baseline gap-x-2">
+                                                    <div
+                                                        className={`font-semibold leading-tight text-[13px] ${
+                                                            cancelled
+                                                                ? 'lesson-cancelled-subject'
+                                                                : ''
+                                                        }`}
+                                                    >
+                                                        {displaySubject}
+                                                    </div>
+                                                    {shouldUseInlineRoomLayout &&
+                                                    !cancelled ? (
+                                                        // Show Room inline instead of Teacher
                                                         <div
-                                                            className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                            className={`leading-tight text-[12px] ${
                                                                 cancelled
-                                                                    ? 'lesson-cancelled-teacher'
-                                                                    : ''
-                                                            } mb-0.5`}
+                                                                    ? 'lesson-cancelled-room'
+                                                                    : 'opacity-95'
+                                                            }`}
                                                         >
-                                                            {l.te.map(
-                                                                (t, i) => (
-                                                                    <span
-                                                                        key={i}
-                                                                        className={
-                                                                            t.orgname
-                                                                                ? 'change-highlight-inline'
-                                                                                : undefined
-                                                                        }
-                                                                    >
-                                                                        {t.name}
-                                                                    </span>
-                                                                )
-                                                            )}
+                                                            <span
+                                                                className={
+                                                                    roomInfoMeta?.hasChanges
+                                                                        ? 'change-highlight-inline'
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                {room}
+                                                            </span>
                                                         </div>
-                                                    );
-                                                })()}
-                                            </div>
+                                                    ) : (
+                                                        // Show Teacher inline
+                                                        (() => {
+                                                            if (
+                                                                !l.te ||
+                                                                l.te.length ===
+                                                                    0
+                                                            )
+                                                                return null;
+                                                            return (
+                                                                <div
+                                                                    className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                                        cancelled
+                                                                            ? 'lesson-cancelled-teacher'
+                                                                            : ''
+                                                                    } mb-0.5`}
+                                                                >
+                                                                    {l.te.map(
+                                                                        (
+                                                                            t,
+                                                                            i
+                                                                        ) => (
+                                                                            <span
+                                                                                key={
+                                                                                    i
+                                                                                }
+                                                                                className={
+                                                                                    t.orgname
+                                                                                        ? 'change-highlight-inline'
+                                                                                        : undefined
+                                                                                }
+                                                                            >
+                                                                                {
+                                                                                    t.name
+                                                                                }
+                                                                            </span>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()
+                                                    )}
+                                                </div>
+                                                {!shouldUseInlineRoomLayout &&
+                                                    inlineRoomBlock}
+                                            </>
                                         ) : (
                                             // Normal layout: subject, teacher, time (time moved below teacher per request)
                                             <>
@@ -1446,6 +1498,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                         </div>
                                                     );
                                                 })()}
+                                                {inlineRoomBlock}
                                                 {/* Timeframe moved below teacher */}
                                                 {canShowTimeFrame &&
                                                     (!(
@@ -1477,7 +1530,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                     )}
                                             </>
                                         )}
-                                        {inlineRoomBlock}
+                                        {/* inlineRoomBlock was here */}
                                         {condensedTimeLabel && (
                                             <div className="text-[11px] leading-tight opacity-85 mt-0.5">
                                                 {condensedTimeLabel}
@@ -1522,8 +1575,8 @@ const MIN_FALLBACK_INLINE_WIDTH = 120; // Conservative estimate if measurement f
 const WRAP_ENTER_SLACK = 2; // Smaller slack => wraps sooner when tight
 const WRAP_EXIT_SLACK = 8; // Larger surplus required to unwrap to avoid oscillation
 // Additional column-based heuristic: even if intrinsic fits, force vertical when the whole column is narrow
-const FORCE_WRAP_COLUMN_WIDTH = 180; // px - below this force vertical layout
-const FORCE_UNWRAP_COLUMN_WIDTH = 190; // px - need to exceed this to allow reverting to single line
+const FORCE_WRAP_COLUMN_WIDTH = 90; // px - below this force vertical layout
+const FORCE_UNWRAP_COLUMN_WIDTH = 100; // px - need to exceed this to allow reverting to single line
 
 const ResponsiveTimeFrame: FC<{
     startMin: number;
@@ -1535,14 +1588,7 @@ const ResponsiveTimeFrame: FC<{
     singleLesson?: boolean;
     // Minimum height required to show wrapped time for single lessons
     minHeightWhenWrapped?: number;
-}> = ({
-    startMin,
-    endMin,
-    cancelled = false,
-    availableSpace,
-    singleLesson = false,
-    minHeightWhenWrapped = 64,
-}) => {
+}> = ({ startMin, endMin, cancelled = false }) => {
     const ref = useRef<HTMLDivElement | null>(null);
     const [wrapVertical, setWrapVertical] = useState(false);
 
@@ -1584,10 +1630,10 @@ const ResponsiveTimeFrame: FC<{
                 const style = getComputedStyle(lessonEl);
                 const padLeft = parseFloat(style.paddingLeft) || 0;
                 const padRight = parseFloat(style.paddingRight) || 0;
-                // Reserve ~30px for potential indicators / internal padding to push earlier wrapping.
+                // Reserve ~4px for potential indicators / internal padding to push earlier wrapping.
                 const available = Math.max(
                     0,
-                    columnWidth - padLeft - padRight - 30
+                    columnWidth - padLeft - padRight - 4
                 );
 
                 // Column width based forced state overrides intrinsic logic (with hysteresis)
@@ -1646,31 +1692,19 @@ const ResponsiveTimeFrame: FC<{
         };
     }, [startMin, endMin]);
 
-    // If time wraps to multiple lines and this is a single lesson with too little height, hide timeframe entirely
-    if (
-        wrapVertical &&
-        singleLesson &&
-        typeof availableSpace === 'number' &&
-        availableSpace < minHeightWhenWrapped
-    ) {
-        return null;
-    }
-
     if (wrapVertical) {
+        // User requested to hide time completely if it wraps
+        // We keep a hidden div to preserve the ref for measurement logic (so it can unwrap if space returns)
         return (
             <div
                 ref={ref}
-                className={`flex flex-col items-center justify-center leading-tight text-[12px] mt-0.5 ${
+                className={`hidden leading-tight text-[12px] ${
                     cancelled ? 'lesson-cancelled-time' : ''
                 }`}
-                style={{ lineHeight: 1.05 }}
-            >
-                <span className="whitespace-nowrap">{fmtHM(startMin)}</span>
-                <span className="opacity-60 -my-0.5">–</span>
-                <span className="whitespace-nowrap">{fmtHM(endMin)}</span>
-            </div>
+            />
         );
     }
+
     return (
         <div
             ref={ref}
