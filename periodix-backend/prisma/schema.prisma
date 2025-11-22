@@ -1,355 +1,257 @@
-// Prisma schema for Periodix backend
-// Auto-migrated to keep DB in sync
-
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    username              String
-    // Secure credential fields (legacy plaintext password removed)
-    hashedPassword        String? // Argon2id hash for local app authentication
-    untisSecretCiphertext Bytes? // AES-GCM ciphertext of Untis password (for background refresh)
-    untisSecretNonce      Bytes? // AES-GCM nonce
-    untisSecretKeyVersion Int?    @default(1) // Version of master key used
-
-    displayName   String?
-    isUserManager Boolean @default(false) // Can manage users but is not full admin
-
-    // User timezone for notifications (IANA timezone identifier)
-    // Defaults to Europe/Berlin for backward compatibility with German schools
-    timezone String @default("Europe/Berlin")
-
-    // Sharing preferences
-    sharingEnabled Boolean @default(true) // By default, new accounts enable sharing
-
-    // User preferences (synced across devices)
-    hiddenSubjects      Json?
-    onboardingCompleted Boolean @default(false)
-
-    // Relationships
-    timetables   Timetable[]
-    sessions     SessionToken[]
-    lessonColors LessonColorSetting[]
-    homework     Homework[]
-    exams        Exam[]
-    activities   UserActivity[] // Usage statistics
-
-    // Sharing relationships
-    sharingWith  TimetableShare[] @relation("UserSharingWith")
-    sharedWithBy TimetableShare[] @relation("UserSharedWithBy")
-
-    // Notification relationships
-    notifications             Notification[]
-    notificationSettings      NotificationSettings?
-    notificationSubscriptions NotificationSubscription[]
-
-    @@unique([username])
+  id                        String                     @id @default(uuid())
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  username                  String                     @unique
+  hashedPassword            String?
+  untisSecretCiphertext     Bytes?
+  untisSecretNonce          Bytes?
+  untisSecretKeyVersion     Int?                       @default(1)
+  displayName               String?
+  sharingEnabled            Boolean                    @default(true)
+  isUserManager             Boolean                    @default(false)
+  timezone                  String                     @default("Europe/Berlin")
+  hiddenSubjects            Json?
+  onboardingCompleted       Boolean                    @default(false)
+  exams                     Exam[]
+  homework                  Homework[]
+  lessonColors              LessonColorSetting[]
+  notifications             Notification[]
+  notificationSettings      NotificationSettings?
+  notificationSubscriptions NotificationSubscription[]
+  sessions                  SessionToken[]
+  timetables                Timetable[]
+  sharingWith               TimetableShare[]           @relation("UserSharingWith")
+  sharedWithBy              TimetableShare[]           @relation("UserSharedWithBy")
+  activities                UserActivity[]
 }
 
 model Timetable {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    ownerId   String
-    owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-    // Cached JSON from WebUntis; keep flexible
-    rangeStart DateTime?
-    rangeEnd   DateTime?
-    payload    Json
+  id         String    @id @default(uuid())
+  createdAt  DateTime  @default(now())
+  ownerId    String
+  rangeStart DateTime?
+  rangeEnd   DateTime?
+  payload    Json
+  owner      User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 }
 
 model SessionToken {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    userId    String
-    user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-    token     String   @unique
-    expiresAt DateTime
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model LessonColorSetting {
-    id         String   @id @default(uuid())
-    createdAt  DateTime @default(now())
-    updatedAt  DateTime @updatedAt
-    userId     String
-    user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-    lessonName String // Subject name like "Math", "English", etc.
-    color      String // Hex color code like "#3b82f6"
-    offset     Float    @default(0.5) // Gradient offset 0..1
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  userId     String
+  lessonName String
+  color      String
+  offset     Float    @default(0.5)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    @@unique([userId, lessonName])
+  @@unique([userId, lessonName])
 }
 
 model DefaultLessonColor {
-    id         String   @id @default(uuid())
-    createdAt  DateTime @default(now())
-    updatedAt  DateTime @updatedAt
-    lessonName String   @unique // Subject name
-    color      String // Default hex color code
-    offset     Float    @default(0.5) // Gradient offset 0..1
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  lessonName String   @unique
+  color      String
+  offset     Float    @default(0.5)
 }
 
 model TimetableShare {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  ownerId      String
+  sharedWithId String
+  owner        User     @relation("UserSharingWith", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith   User     @relation("UserSharedWithBy", fields: [sharedWithId], references: [id], onDelete: Cascade)
 
-    // User who is sharing their timetable
-    ownerId String
-    owner   User   @relation("UserSharingWith", fields: [ownerId], references: [id], onDelete: Cascade)
-
-    // User who can view the timetable
-    sharedWithId String
-    sharedWith   User   @relation("UserSharedWithBy", fields: [sharedWithId], references: [id], onDelete: Cascade)
-
-    @@unique([ownerId, sharedWithId])
+  @@unique([ownerId, sharedWithId])
 }
 
 model AppSettings {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    // Global setting for admins to disable all sharing
-    globalSharingEnabled Boolean @default(true)
+  id                   String   @id @default(uuid())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  globalSharingEnabled Boolean  @default(true)
 }
 
 model Homework {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  untisId   Int
+  userId    String
+  lessonId  Int?
+  date      Int
+  subjectId Int
+  subject   String
+  text      String
+  remark    String?
+  completed Boolean  @default(false)
+  fetchedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // WebUntis homework ID
-    untisId Int
-
-    // User who owns this homework
-    userId String
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-    // Homework details from WebUntis
-    lessonId  Int? // Associated lesson ID from WebUntis
-    date      Int // Due date in yyyymmdd format
-    subjectId Int
-    subject   String // Subject name
-    text      String // Homework description
-    remark    String? // Additional remarks
-    completed Boolean @default(false)
-
-    // Metadata
-    fetchedAt DateTime @default(now())
-
-    // Composite unique constraint: homework should be unique per user
-    @@unique([userId, untisId])
+  @@unique([userId, untisId])
 }
 
 model Exam {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  untisId   Int
+  userId    String
+  date      Int
+  startTime Int
+  endTime   Int
+  subjectId Int
+  subject   String
+  name      String
+  text      String?
+  teachers  Json?
+  rooms     Json?
+  fetchedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // WebUntis exam ID
-    untisId Int
-
-    // User who owns this exam
-    userId String
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-    // Exam details from WebUntis
-    date      Int // Exam date in yyyymmdd format
-    startTime Int // Start time in HHmm format
-    endTime   Int // End time in HHmm format
-    subjectId Int
-    subject   String // Subject name
-    name      String // Exam name
-    text      String? // Additional exam information
-
-    // Related entities (stored as JSON for flexibility)
-    teachers Json? // Array of teacher objects
-    rooms    Json? // Array of room objects
-
-    // Metadata
-    fetchedAt DateTime @default(now())
-
-    // Composite unique constraint: exam should be unique per user
-    @@unique([userId, untisId])
+  @@unique([userId, untisId])
 }
 
-// DB-backed whitelist rules — username only
 model WhitelistRule {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    value     String   @unique
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  value     String   @unique
 }
 
-// Access requests for whitelist mode
 model AccessRequest {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    username  String   @unique
-    message   String? // Optional message from user explaining why they need access
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  username  String   @unique
+  message   String?
 }
 
-// Notification system models
 model Notification {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        String    @id @default(uuid())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  userId    String
+  type      String
+  title     String
+  message   String
+  data      Json?
+  read      Boolean   @default(false)
+  sent      Boolean   @default(false)
+  expiresAt DateTime?
+  dedupeKey String?   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // Target user
-    userId String
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-    // Notification details
-    type    String // 'timetable_change', 'access_request', etc.
-    title   String
-    message String
-    data    Json? // Additional structured data
-
-    // Status
-    read      Boolean   @default(false)
-    sent      Boolean   @default(false) // For push notifications
-    expiresAt DateTime?
-
-    // Optional idempotency key to prevent duplicates for the same event
-    dedupeKey String? @unique
-
-    @@index([userId, createdAt])
-    @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
 }
 
 model NotificationSettings {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    // User settings
-    userId String @unique
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-    // General notification preferences
-    browserNotificationsEnabled Boolean @default(true)
-    pushNotificationsEnabled    Boolean @default(false)
-
-    // Notification type preferences
-    timetableChangesEnabled Boolean @default(true)
-    accessRequestsEnabled   Boolean @default(true) // Only relevant for user managers
-    irregularLessonsEnabled Boolean @default(true)
-    cancelledLessonsEnabled Boolean @default(true)
-    upcomingLessonsEnabled  Boolean @default(false) // Beta: 5-min pre-lesson reminder
-
-    // Time scope preferences for notifications
-    cancelledLessonsTimeScope String @default("day") // "day" | "week"
-    irregularLessonsTimeScope String @default("day") // "day" | "week"
-
-    // Device-specific settings (JSON for flexibility)
-    devicePreferences Json? // { "mobile": {...}, "desktop": {...} }
+  id                          String   @id @default(uuid())
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  userId                      String   @unique
+  browserNotificationsEnabled Boolean  @default(true)
+  pushNotificationsEnabled    Boolean  @default(false)
+  timetableChangesEnabled     Boolean  @default(true)
+  accessRequestsEnabled       Boolean  @default(true)
+  irregularLessonsEnabled     Boolean  @default(true)
+  cancelledLessonsEnabled     Boolean  @default(true)
+  devicePreferences           Json?
+  cancelledLessonsTimeScope   String   @default("day")
+  irregularLessonsTimeScope   String   @default("day")
+  upcomingLessonsEnabled      Boolean  @default(false)
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model NotificationSubscription {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  userId     String
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  deviceType String?
+  active     Boolean  @default(true)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // User and device info
-    userId   String
-    user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-    endpoint String @unique // Push subscription endpoint
-
-    // Push subscription details
-    p256dh String // Public key
-    auth   String // Auth secret
-
-    // Device metadata
-    userAgent  String?
-    deviceType String? // 'mobile', 'desktop', 'tablet'
-
-    // Status
-    active Boolean @default(true)
-
-    @@index([userId, active])
+  @@index([userId, active])
 }
 
 model AdminNotificationSettings {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    // Fetch timing settings (in minutes)
-    timetableFetchInterval Int @default(30) // How often to check for timetable changes
-
-    // Notification settings
-    enableTimetableNotifications     Boolean @default(true)
-    enableAccessRequestNotifications Boolean @default(true)
-
-    // Single row constraint
-    @@unique([id])
+  id                               String   @id @unique @default(uuid())
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+  timetableFetchInterval           Int      @default(30)
+  enableTimetableNotifications     Boolean  @default(true)
+  enableAccessRequestNotifications Boolean  @default(true)
 }
 
-// Usage statistics tracking models
 model UserActivity {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  userId    String
+  action    String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  sessionId String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // User who performed the activity
-    userId String
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-    // Activity details
-    action    String // 'login', 'timetable_view', 'search', 'settings', 'color_change', etc.
-    details   Json? // Additional context data
-    ipAddress String? // For geographic analysis
-    userAgent String? // For device analysis
-    sessionId String? // For session tracking
-
-    @@index([userId, createdAt])
-    @@index([action, createdAt])
-    @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
 }
 
 model DailyStats {
-    id   String @id @default(uuid())
-    date String @unique // YYYY-MM-DD format
+  id                 String @id @default(uuid())
+  date               String @unique
+  totalUsers         Int    @default(0)
+  activeUsers        Int    @default(0)
+  newUsers           Int    @default(0)
+  uniqueLogins       Int    @default(0)
+  totalLogins        Int    @default(0)
+  timetableViews     Int    @default(0)
+  searchQueries      Int    @default(0)
+  settingsOpened     Int    @default(0)
+  colorChanges       Int    @default(0)
+  avgSessionDuration Float?
+  peakHour           Int?
 
-    // User metrics
-    totalUsers   Int @default(0)
-    activeUsers  Int @default(0)
-    newUsers     Int @default(0)
-    uniqueLogins Int @default(0)
-
-    // Activity metrics
-    totalLogins    Int @default(0)
-    timetableViews Int @default(0)
-    searchQueries  Int @default(0)
-    settingsOpened Int @default(0)
-    colorChanges   Int @default(0)
-
-    // Engagement metrics
-    avgSessionDuration Float? // in minutes
-    peakHour           Int? // hour of day (0-23)
-
-    @@index([date])
+  @@index([date])
 }
 
 model HourlyStats {
-    id   String @id @default(uuid())
-    date String // YYYY-MM-DD format
-    hour Int // 0-23
+  id             String @id @default(uuid())
+  date           String
+  hour           Int
+  activeUsers    Int    @default(0)
+  logins         Int    @default(0)
+  timetableViews Int    @default(0)
+  searchQueries  Int    @default(0)
 
-    // Activity counts
-    activeUsers    Int @default(0)
-    logins         Int @default(0)
-    timetableViews Int @default(0)
-    searchQueries  Int @default(0)
-
-    @@unique([date, hour])
-    @@index([date, hour])
+  @@unique([date, hour])
+  @@index([date, hour])
 }

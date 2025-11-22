@@ -142,6 +142,9 @@ const DayColumn: FC<DayColumnProps> = ({
         };
     }, []);
 
+    // DEBUG: Log items for Thursday 27.11.2025 to verify data arrival
+    // (Removed debug logs)
+
     // Helper function to detect if a lesson is merged (contains merge separator)
     const isLessonMerged = (lesson: Lesson): boolean => {
         return (
@@ -165,6 +168,47 @@ const DayColumn: FC<DayColumnProps> = ({
         l: Lesson;
         startMin: number;
         endMin: number;
+    };
+
+    // Helper to determine sort priority for side-by-side ordering
+    // 1. Exam
+    // 2. Irregular (valid change)
+    // 3. Normal
+    // 4. Irregular (change to empty)
+    // 5. Cancelled
+    const getLessonPriority = (l: Lesson): number => {
+        if (l.exams && l.exams.length > 0) return 1;
+        if (l.code === 'cancelled') return 5;
+
+        const teachers = l.te || [];
+        const rooms = l.ro || [];
+        const isInvalidName = (name?: string) =>
+            !name ||
+            name.trim() === '---' ||
+            name.trim() === '?' ||
+            name.trim() === '';
+
+        const hasGoodTeacherChange = teachers.some(
+            (t) => !!t.orgname && !isInvalidName(t.name)
+        );
+        const hasGoodRoomChange = rooms.some(
+            (r) => !!r.orgname && !isInvalidName(r.name)
+        );
+
+        if (hasGoodTeacherChange || hasGoodRoomChange) return 2;
+
+        const hasBadTeacherChange = teachers.some(
+            (t) => !!t.orgname && isInvalidName(t.name)
+        );
+        const hasBadRoomChange = rooms.some(
+            (r) => !!r.orgname && isInvalidName(r.name)
+        );
+
+        if (hasBadTeacherChange || hasBadRoomChange) return 4;
+
+        if (l.code === 'irregular') return 2;
+
+        return 3;
     };
 
     const blocks: Block[] = (() => {
@@ -198,6 +242,14 @@ const DayColumn: FC<DayColumnProps> = ({
         if (current.length) clusters.push(current);
         const out: Block[] = [];
         for (const cl of clusters) {
+            // Sort cluster by priority (High priority = Low number -> Left column)
+            cl.sort((a, b) => {
+                const pA = getLessonPriority(a.l);
+                const pB = getLessonPriority(b.l);
+                if (pA !== pB) return pA - pB;
+                return a.startMin - b.startMin;
+            });
+
             const columns: Array<ClusterBlock[]> = [];
             const placement = new Map<ClusterBlock, number>();
             for (const ev of cl) {
@@ -232,6 +284,19 @@ const DayColumn: FC<DayColumnProps> = ({
 
     // Track the last bottom pixel per visual column signature to enforce gaps
     const lastBottomByCol: Record<string, number> = {};
+
+    // Group blocks by exam for outline rendering
+    const examGroups = new Map<number, Block[]>();
+    blocks.forEach((b) => {
+        if (b.l.exams && b.l.exams.length > 0) {
+            b.l.exams.forEach((ex) => {
+                if (!examGroups.has(ex.id)) {
+                    examGroups.set(ex.id, []);
+                }
+                examGroups.get(ex.id)?.push(b);
+            });
+        }
+    });
 
     const holiday = holidays.find((h) => {
         // Parse yyyymmdd number to Date
@@ -401,6 +466,94 @@ const DayColumn: FC<DayColumnProps> = ({
                     }px, rgba(100,116,139,0.10) ${gridSlotMinutes * SCALE}px)`,
                 }}
             />
+            {/* Exam Outlines */}
+            {Array.from(examGroups.entries()).map(([examId, groupBlocks]) => {
+                if (groupBlocks.length === 0) return null;
+                const firstBlock = groupBlocks[0];
+                const exam = firstBlock.l.exams?.find((e) => e.id === examId);
+                if (!exam) return null;
+
+                // Use exam times for vertical span
+                const startMin = clamp(
+                    untisToMinutes(exam.startTime),
+                    START_MIN,
+                    END_MIN
+                );
+                const endMin = Math.max(
+                    startMin,
+                    clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN)
+                );
+
+                // Use first block for horizontal positioning
+                const b = firstBlock;
+                const GAP_PCT = 1.5;
+                const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
+                const MOBILE_MIN_COLUMN_WIDTH = 140;
+
+                let mobileVisibleCols = 1;
+                if (isMobile && b.colCount > 1) {
+                    const maxFit = Math.max(
+                        1,
+                        Math.floor(
+                            (measuredWidth + gapPx) /
+                                (MOBILE_MIN_COLUMN_WIDTH + gapPx)
+                        )
+                    );
+                    mobileVisibleCols = Math.min(b.colCount, maxFit);
+                }
+
+                // Hide if the column is hidden (same logic as blocks)
+                if (b.colCount > 1) {
+                    if (!isMobile && collapseNarrow) {
+                        if (b.colIndex !== 0) return null;
+                    } else if (isMobile) {
+                        if (b.colIndex >= mobileVisibleCols) return null;
+                    }
+                }
+
+                let widthPct = (100 - GAP_PCT * (b.colCount - 1)) / b.colCount;
+                let leftPct = b.colIndex * (widthPct + GAP_PCT);
+                if (b.colCount > 1) {
+                    if (!isMobile && collapseNarrow) {
+                        widthPct = 100;
+                        leftPct = 0;
+                    } else if (isMobile) {
+                        if (mobileVisibleCols <= 1) {
+                            widthPct = 100;
+                            leftPct = 0;
+                        } else {
+                            const visibleCols = mobileVisibleCols;
+                            widthPct =
+                                (100 - GAP_PCT * (visibleCols - 1)) /
+                                visibleCols;
+                            const visibleIndex = b.colIndex;
+                            leftPct = visibleIndex * (widthPct + GAP_PCT);
+                        }
+                    }
+                }
+
+                const PAD_TOP = isMobile ? 2 : 4;
+                const PAD_BOTTOM = isMobile ? 2 : 4;
+                const startPxRaw = (startMin - START_MIN) * SCALE + headerPx;
+                const endPxRaw = (endMin - START_MIN) * SCALE + headerPx;
+                const topPx = Math.round(startPxRaw) + PAD_TOP;
+                const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
+                const heightPx = Math.max(isMobile ? 30 : 14, endPx - topPx);
+
+                return (
+                    <div
+                        key={`exam-${examId}`}
+                        className="absolute pointer-events-none z-10 rounded-md border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
+                        style={{
+                            top: topPx,
+                            height: heightPx,
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                            borderWidth: '3px',
+                        }}
+                    />
+                );
+            })}
             {blocks
                 // render in top order to make bottom tracking deterministic
                 .slice()
@@ -433,15 +586,9 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Hide non-visible columns depending on state
                     if (b.colCount > 1) {
                         if (!isMobile && collapseNarrow) {
-                            if (b.colIndex !== b.colCount - 1) return null;
+                            if (b.colIndex !== 0) return null;
                         } else if (isMobile) {
-                            if (mobileVisibleCols <= 1) {
-                                if (b.colIndex !== b.colCount - 1) return null;
-                            } else {
-                                // show only the last N columns that fit
-                                const cutoff = b.colCount - mobileVisibleCols;
-                                if (b.colIndex < cutoff) return null;
-                            }
+                            if (b.colIndex >= mobileVisibleCols) return null;
                         }
                     }
 
@@ -501,8 +648,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                 widthPct =
                                     (100 - GAP_PCT * (visibleCols - 1)) /
                                     visibleCols;
-                                const visibleIndex =
-                                    b.colIndex - (b.colCount - visibleCols);
+                                const visibleIndex = b.colIndex;
                                 leftPct = visibleIndex * (widthPct + GAP_PCT);
                             }
                         }
@@ -617,7 +763,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     const showTeacherTiny =
                         isTinyMobileSingle &&
                         ((teacherChanged && !roomChanged) ||
-                            (!roomMobile && (l.te?.length ?? 0) > 0));
+                            (!roomMobile && (l.te?.length ?? 0)));
                     const showRoomTiny =
                         isTinyMobileSingle &&
                         !!roomMobile &&
@@ -643,8 +789,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                     ? `${statusOverlay}, linear-gradient(to right, ${gradient.from}, ${gradient.via}, ${gradient.to})`
                                     : `linear-gradient(to right, ${gradient.from}, ${gradient.via}, ${gradient.to})`,
                                 // Larger invisible hit target for touch
-                                paddingTop: isMobile ? 6 : undefined,
-                                paddingBottom: isMobile ? 6 : undefined,
+                                paddingTop: isMobile ? 4 : undefined,
+                                paddingBottom: isMobile ? 4 : undefined,
                                 boxShadow:
                                     '0 1px 2px -1px rgba(0,0,0,0.25), 0 2px 6px -1px rgba(0,0,0,0.25)',
                             }}
@@ -1007,10 +1153,10 @@ const DayColumn: FC<DayColumnProps> = ({
                                 </div>
 
                                 {/* Mobile centered layout */}
-                                <div className="flex flex-col items-center justify-center text-center gap-0.5 h-full sm:hidden px-0.5">
+                                <div className="flex flex-col items-center justify-center text-center gap-0 h-full sm:hidden px-0.5">
                                     {/* Info preview removed from mobile timetable view */}
                                     <div
-                                        className={`font-semibold leading-snug w-full whitespace-nowrap truncate ${
+                                        className={`font-semibold leading-tight w-full whitespace-nowrap truncate ${
                                             cancelled
                                                 ? 'lesson-cancelled-subject'
                                                 : ''

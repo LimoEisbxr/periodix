@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import app from './app.js';
 import { notificationService } from './services/notificationService.js';
 import { timetableWarmupService } from './services/timetableWarmupService.js';
+import { ExamUpdateService } from './services/examUpdateService.js';
 
 dotenv.config();
 
@@ -21,5 +22,11 @@ app.listen(port, async () => {
         await timetableWarmupService.start();
     } catch (error) {
         console.error('Failed to start timetable warmup service:', error);
+    }
+
+    try {
+        ExamUpdateService.getInstance().start();
+    } catch (error) {
+        console.error('Failed to start exam update service:', error);
     }
 });
