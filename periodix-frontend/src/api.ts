@@ -910,3 +910,30 @@ export async function updateUserPreferences(
         }
     );
 }
+
+// Class timetable API functions
+export type ClassInfo = {
+    id: number;
+    name: string;
+    longName: string;
+};
+
+export async function getUserClasses(
+    token: string
+): Promise<{ classes: ClassInfo[] }> {
+    return api<{ classes: ClassInfo[] }>('/api/timetable/classes', { token });
+}
+
+export async function getClassTimetable(
+    token: string,
+    classId: number,
+    start?: string,
+    end?: string
+): Promise<any> {
+    const params = new URLSearchParams();
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    const query = params.toString();
+    const url = `/api/timetable/class/${classId}${query ? `?${query}` : ''}`;
+    return api<any>(url, { token });
+}

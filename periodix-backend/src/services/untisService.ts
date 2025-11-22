@@ -983,3 +983,226 @@ async function enrichLessonsWithHomeworkAndExams(
         };
     });
 }
+
+/**
+ * Get list of classes available to the user
+ */
+export async function getUserClasses(userId: string): Promise<
+    Array<{
+        id: number;
+        name: string;
+        longName: string;
+    }>
+> {
+    const target: any = await (prisma as any).user.findUnique({
+        where: { id: userId },
+        select: {
+            id: true,
+            username: true,
+            untisSecretCiphertext: true,
+            untisSecretNonce: true,
+            untisSecretKeyVersion: true,
+        },
+    });
+    if (!target) throw new Error('User not found');
+
+    if (!target.untisSecretCiphertext || !target.untisSecretNonce) {
+        throw new AppError(
+            'User missing encrypted Untis credential',
+            400,
+            'MISSING_UNTIS_SECRET'
+        );
+    }
+
+    let untisPassword: string;
+    try {
+        untisPassword = decryptSecret({
+            ciphertext: target.untisSecretCiphertext as any,
+            nonce: target.untisSecretNonce as any,
+            keyVersion: target.untisSecretKeyVersion || 1,
+        });
+    } catch (e) {
+        console.error('[classes] decrypt secret failed', e);
+        throw new AppError(
+            'Credential decryption failed',
+            500,
+            'DECRYPT_FAILED'
+        );
+    }
+
+    const school = UNTIS_DEFAULT_SCHOOL;
+    const host = toHost();
+    const untis = new WebUntis(
+        school,
+        target.username,
+        untisPassword,
+        host
+    ) as any;
+
+    try {
+        await untis.login();
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
+
+    try {
+        let classes: any[] = [];
+
+        // Try to get classes using getClasses method
+        if (typeof untis.getClasses === 'function') {
+            const classList = await untis.getClasses();
+            if (Array.isArray(classList)) {
+                classes = classList.map((c: any) => ({
+                    id: c.id,
+                    name: c.name || c.displayName || String(c.id),
+                    longName: c.longName || c.name || c.displayName || String(c.id),
+                }));
+            }
+        }
+
+        await untis.logout?.();
+        return classes;
+    } catch (e: any) {
+        try {
+            await untis.logout?.();
+        } catch {}
+        throw new AppError(
+            'Failed to fetch classes',
+            502,
+            'UNTIS_FETCH_FAILED'
+        );
+    }
+}
+
+/**
+ * Fetch class timetable for a given date range
+ */
+export async function getClassTimetable(args: {
+    requesterId: string;
+    classId: number;
+    start?: string | undefined;
+    end?: string | undefined;
+}): Promise<any> {
+    console.debug('[class-timetable] request', {
+        requesterId: args.requesterId,
+        classId: args.classId,
+        start: args.start,
+        end: args.end,
+    });
+
+    const requester: any = await (prisma as any).user.findUnique({
+        where: { id: args.requesterId },
+        select: {
+            id: true,
+            username: true,
+            untisSecretCiphertext: true,
+            untisSecretNonce: true,
+            untisSecretKeyVersion: true,
+        },
+    });
+    if (!requester) throw new Error('Requester not found');
+
+    if (!requester.untisSecretCiphertext || !requester.untisSecretNonce) {
+        throw new AppError(
+            'User missing encrypted Untis credential',
+            400,
+            'MISSING_UNTIS_SECRET'
+        );
+    }
+
+    let untisPassword: string;
+    try {
+        untisPassword = decryptSecret({
+            ciphertext: requester.untisSecretCiphertext as any,
+            nonce: requester.untisSecretNonce as any,
+            keyVersion: requester.untisSecretKeyVersion || 1,
+        });
+    } catch (e) {
+        console.error('[class-timetable] decrypt secret failed', e);
+        throw new AppError(
+            'Credential decryption failed',
+            500,
+            'DECRYPT_FAILED'
+        );
+    }
+
+    const { normStart, normEnd } = normalizeRange(args.start, args.end);
+    const sd = normStart || startOfDay(new Date());
+    const ed = normEnd || endOfDay(new Date());
+
+    const school = UNTIS_DEFAULT_SCHOOL;
+    const host = toHost();
+    const untis = new WebUntis(
+        school,
+        requester.username,
+        untisPassword,
+        host
+    ) as any;
+
+    try {
+        await untis.login();
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
+
+    let lessonsData: any;
+    try {
+        // Use getOwnClassTimetableFor if available
+        if (typeof untis.getOwnClassTimetableFor === 'function') {
+            console.debug('[class-timetable] calling getOwnClassTimetableFor', {
+                start: sd,
+                end: ed,
+                classId: args.classId,
+            });
+            lessonsData = await untis.getOwnClassTimetableFor(
+                sd,
+                ed,
+                args.classId
+            );
+        } else {
+            throw new AppError(
+                'getOwnClassTimetableFor not available',
+                501,
+                'METHOD_NOT_AVAILABLE'
+            );
+        }
+
+        await untis.logout?.();
+
+        return {
+            classId: args.classId,
+            rangeStart: sd.toISOString(),
+            rangeEnd: ed.toISOString(),
+            payload: Array.isArray(lessonsData) ? lessonsData : [],
+            cached: false,
+            stale: false,
+            source: 'live',
+            lastUpdated: new Date().toISOString(),
+        };
+    } catch (e: any) {
+        try {
+            await untis.logout?.();
+        } catch {}
+        throw new AppError(
+            'Failed to fetch class timetable',
+            502,
+            'UNTIS_FETCH_FAILED'
+        );
+    }
+}

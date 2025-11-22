@@ -20,6 +20,9 @@ import {
     getUserPreferences,
     updateUserPreferences,
     getHolidays,
+    getUserClasses,
+    getClassTimetable,
+    type ClassInfo,
 } from '../api';
 import {
     isServiceWorkerSupported,
@@ -75,6 +78,8 @@ export default function Dashboard({
     const [results, setResults] = useState<
         Array<{ id: string; username: string; displayName: string | null }>
     >([]);
+    const [classResults, setClassResults] = useState<ClassInfo[]>([]);
+    const [searchMode, setSearchMode] = useState<'users' | 'classes'>('users');
     // Track loading & error state for search to avoid flicker on mobile
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
@@ -82,11 +87,13 @@ export default function Dashboard({
     const lastResultsRef = useRef<
         Array<{ id: string; username: string; displayName: string | null }>
     >([]);
+    const lastClassResultsRef = useRef<ClassInfo[]>([]);
     const [selectedUser, setSelectedUser] = useState<{
         id: string;
         username: string;
         displayName: string | null;
     } | null>(null);
+    const [selectedClass, setSelectedClass] = useState<ClassInfo | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const searchBoxRef = useRef<HTMLDivElement | null>(null);
     const [mobileSearchOpen, setMobileSearchOpen] = useState(false); // full-screen popup on mobile
@@ -346,11 +353,64 @@ export default function Dashboard({
         ]
     );
 
+    const loadClass = useCallback(
+        async (classId: number) => {
+            setLoadError(null);
+            try {
+                // Track class timetable view
+                trackActivity(token, 'class_timetable_view', {
+                    classId,
+                }).catch(console.error);
+
+                const res = await getClassTimetable(
+                    token,
+                    classId,
+                    weekStartStr,
+                    weekEndStr
+                );
+                setMine(res);
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Failed to load';
+                // Auto-retry if rate-limited
+                try {
+                    const parsed = JSON.parse(msg);
+                    if (parsed?.status === 429) {
+                        const retryAfterSec = Math.max(
+                            1,
+                            Number(parsed?.retryAfter || 0) || 1
+                        );
+                        setRetrySeconds(retryAfterSec);
+                        setLoadError(null);
+                        const t = setTimeout(() => {
+                            setRetrySeconds(null);
+                            loadClass(classId);
+                        }, retryAfterSec * 1000);
+                        return () => clearTimeout(t);
+                    }
+                } catch {
+                    // ignore JSON parse errors
+                }
+                setLoadError(msg);
+                setMine({
+                    userId: user.id,
+                    rangeStart: weekStartStr,
+                    rangeEnd: weekEndStr,
+                    payload: [],
+                });
+            }
+        },
+        [token, weekStartStr, weekEndStr, user.id]
+    );
+
     useEffect(() => {
-        if (selectedUser && selectedUser.id !== user.id)
+        if (selectedClass) {
+            loadClass(selectedClass.id);
+        } else if (selectedUser && selectedUser.id !== user.id) {
             loadUser(selectedUser.id);
-        else loadMine();
-    }, [loadUser, loadMine, selectedUser, user.id]);
+        } else {
+            loadMine();
+        }
+    }, [loadClass, loadUser, loadMine, selectedClass, selectedUser, user.id]);
 
     useEffect(() => {
         if (!mine) {
@@ -550,12 +610,22 @@ export default function Dashboard({
         invalidateCache(selectedUser?.id || user.id);
 
         // Reload the appropriate data
-        if (selectedUser) {
+        if (selectedClass) {
+            await loadClass(selectedClass.id);
+        } else if (selectedUser) {
             await loadUser(selectedUser.id);
         } else {
             await loadMine();
         }
-    }, [invalidateCache, selectedUser, user.id, loadUser, loadMine]);
+    }, [
+        invalidateCache,
+        selectedClass,
+        selectedUser,
+        user.id,
+        loadClass,
+        loadUser,
+        loadMine,
+    ]);
 
     const handleDismissFallback = useCallback(() => {
         if (fallbackKeyRef.current) {
@@ -783,7 +853,9 @@ export default function Dashboard({
         if (!q) {
             // Clear everything when field emptied
             setResults([]);
+            setClassResults([]);
             lastResultsRef.current = [];
+            lastClassResultsRef.current = [];
             setSearchLoading(false);
             setSearchError(null);
             abortRef.current?.abort();
@@ -792,7 +864,9 @@ export default function Dashboard({
         if (q.length < 2) {
             // Don't search with less than 2 characters - clear results and loading state
             setResults([]);
+            setClassResults([]);
             lastResultsRef.current = [];
+            lastClassResultsRef.current = [];
             setSearchLoading(false);
             setSearchError(null);
             abortRef.current?.abort();
@@ -802,33 +876,57 @@ export default function Dashboard({
         setSearchLoading(true);
         setSearchError(null);
         const currentQuery = q;
+        const currentMode = searchMode;
         const h = setTimeout(async () => {
             abortRef.current?.abort();
             const ac = new AbortController();
             abortRef.current = ac;
             try {
                 // Track search activity
-                trackActivity(token, 'search', { query: currentQuery }).catch(
-                    console.error
-                );
+                trackActivity(token, 'search', {
+                    query: currentQuery,
+                    mode: currentMode,
+                }).catch(console.error);
 
-                const base = API_BASE
-                    ? String(API_BASE).replace(/\/$/, '')
-                    : '';
-                const url = `${base}/api/users/search?q=${encodeURIComponent(
-                    currentQuery
-                )}`;
-                const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${token}` },
-                    signal: ac.signal,
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                if (cancelled) return;
-                if (queryText.trim() !== currentQuery) return; // stale
-                const users = Array.isArray(data.users) ? data.users : [];
-                setResults(users);
-                lastResultsRef.current = users;
+                if (currentMode === 'users') {
+                    const base = API_BASE
+                        ? String(API_BASE).replace(/\/$/, '')
+                        : '';
+                    const url = `${base}/api/users/search?q=${encodeURIComponent(
+                        currentQuery
+                    )}`;
+                    const res = await fetch(url, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        signal: ac.signal,
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    if (cancelled) return;
+                    if (queryText.trim() !== currentQuery) return; // stale
+                    if (searchMode !== currentMode) return; // mode changed
+                    const users = Array.isArray(data.users) ? data.users : [];
+                    setResults(users);
+                    lastResultsRef.current = users;
+                } else {
+                    // Search classes
+                    const response = await getUserClasses(token);
+                    if (cancelled) return;
+                    if (queryText.trim() !== currentQuery) return; // stale
+                    if (searchMode !== currentMode) return; // mode changed
+                    const allClasses = response.classes || [];
+                    // Filter classes by search query
+                    const filtered = allClasses.filter(
+                        (c) =>
+                            c.name
+                                .toLowerCase()
+                                .includes(currentQuery.toLowerCase()) ||
+                            c.longName
+                                .toLowerCase()
+                                .includes(currentQuery.toLowerCase())
+                    );
+                    setClassResults(filtered);
+                    lastClassResultsRef.current = filtered;
+                }
             } catch (e: unknown) {
                 if (
                     e &&
@@ -850,7 +948,7 @@ export default function Dashboard({
             cancelled = true;
             clearTimeout(h);
         };
-    }, [queryText, token]);
+    }, [queryText, token, searchMode]);
 
     const handleOnboardingComplete = () => {
         try {
