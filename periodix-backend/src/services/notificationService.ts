@@ -43,13 +43,14 @@ function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
 
     // Check if lessons are consecutive (5 minutes or less break)
     // Helper to convert Untis HHmm format to minutes since midnight
-    const toMinutes = (hhmm: number) => Math.floor(hhmm / 100) * 60 + (hhmm % 100);
+    const toMinutes = (hhmm: number) =>
+        Math.floor(hhmm / 100) * 60 + (hhmm % 100);
     const lesson1EndMin = toMinutes(lesson1.endTime);
     const lesson2StartMin = toMinutes(lesson2.startTime);
     const breakMinutes = lesson2StartMin - lesson1EndMin;
 
-    // Merge if break is 5 minutes or less (including negative for overlapping)
-    return breakMinutes <= 5;
+    // Merge if break is 20 minutes or less (including negative for overlapping)
+    return breakMinutes <= 20;
 }
 
 /**
@@ -57,11 +58,12 @@ function canMergeLessonsForNotifications(lesson1: any, lesson2: any): boolean {
  * Returns arrays of lessons that should generate single notifications
  */
 function groupLessonsForNotifications(lessons: any[]): any[][] {
-    if (lessons.length <= 1) return lessons.map(l => [l]);
+    if (lessons.length <= 1) return lessons.map((l) => [l]);
 
     // Sort lessons by date and start time - ensure numeric comparison
     const sortedLessons = [...lessons].sort((a, b) => {
-        if (Number(a.date) !== Number(b.date)) return Number(a.date) - Number(b.date);
+        if (Number(a.date) !== Number(b.date))
+            return Number(a.date) - Number(b.date);
         return Number(a.startTime) - Number(b.startTime);
     });
 
@@ -93,8 +95,16 @@ function groupLessonsForNotifications(lessons: any[]): any[][] {
  */
 function createCanonicalSignature(lesson: any): string {
     const subject = lesson.su?.[0]?.name ?? lesson.activityType ?? 'unknown';
-    const teachers = (lesson.te ?? []).map((t: any) => t.name).sort().join(',') || 'no-teacher';
-    const rooms = (lesson.ro ?? []).map((r: any) => r.name).sort().join(',') || 'no-room';
+    const teachers =
+        (lesson.te ?? [])
+            .map((t: any) => t.name)
+            .sort()
+            .join(',') || 'no-teacher';
+    const rooms =
+        (lesson.ro ?? [])
+            .map((r: any) => r.name)
+            .sort()
+            .join(',') || 'no-room';
     return `${subject}:${teachers}:${rooms}`;
 }
 
@@ -147,7 +157,9 @@ export class NotificationService {
      * not the server's UTC time.
      */
     private getNowInUserTimezone(userTimezone: string): Date {
-        return new Date(new Date().toLocaleString("en-US", { timeZone: userTimezone }));
+        return new Date(
+            new Date().toLocaleString('en-US', { timeZone: userTimezone })
+        );
     }
 
     // Create a notification (with robust deduplication)
@@ -614,7 +626,9 @@ export class NotificationService {
             }
 
             // Get current date info using the user's timezone
-            const today = this.getNowInUserTimezone(user.timezone || 'Europe/Berlin');
+            const today = this.getNowInUserTimezone(
+                user.timezone || 'Europe/Berlin'
+            );
             const todayString =
                 today.getFullYear() * 10000 +
                 (today.getMonth() + 1) * 100 +
@@ -661,7 +675,7 @@ export class NotificationService {
 
             if (!options?.onlyUpcoming) {
                 // Filter lessons for scope and past/future, then group for notifications
-                const eligibleLessons = lessons.filter(lesson => {
+                const eligibleLessons = lessons.filter((lesson) => {
                     // Skip any lesson whose end time is in the past (no notifications for past lessons)
                     const lDate: number | undefined =
                         typeof lesson?.date === 'number'
@@ -689,24 +703,29 @@ export class NotificationService {
 
                 // Process cancelled lessons
                 if (user.notificationSettings?.cancelledLessonsEnabled) {
-                    const scope = user.notificationSettings?.cancelledLessonsTimeScope || 'day';
-                    const cancelledLessons = eligibleLessons.filter(lesson => {
-                        if (lesson.code !== 'cancelled') return false;
+                    const scope =
+                        user.notificationSettings?.cancelledLessonsTimeScope ||
+                        'day';
+                    const cancelledLessons = eligibleLessons.filter(
+                        (lesson) => {
+                            if (lesson.code !== 'cancelled') return false;
 
-                        let shouldNotify = false;
-                        if (scope === 'day') {
-                            shouldNotify = lesson.date === todayString;
-                        } else if (scope === 'week') {
-                            shouldNotify =
-                                lesson.date >= startOfWeekString &&
-                                lesson.date <= endOfWeekString;
+                            let shouldNotify = false;
+                            if (scope === 'day') {
+                                shouldNotify = lesson.date === todayString;
+                            } else if (scope === 'week') {
+                                shouldNotify =
+                                    lesson.date >= startOfWeekString &&
+                                    lesson.date <= endOfWeekString;
+                            }
+                            return shouldNotify;
                         }
-                        return shouldNotify;
-                    });
+                    );
 
                     // Group consecutive cancelled lessons for merged notifications
-                    const cancelledGroups = groupLessonsForNotifications(cancelledLessons);
-                    
+                    const cancelledGroups =
+                        groupLessonsForNotifications(cancelledLessons);
+
                     for (const group of cancelledGroups) {
                         if (group.length === 1) {
                             // Single lesson - use existing logic
@@ -734,13 +753,22 @@ export class NotificationService {
                             // Multiple consecutive lessons - create merged notification
                             const firstLesson = group[0];
                             const lastLesson = group[group.length - 1];
-                            const subject = firstLesson.su?.[0]?.name || 'Lesson';
+                            const subject =
+                                firstLesson.su?.[0]?.name || 'Lesson';
                             const startTime = formatHm(firstLesson.startTime);
                             const endTime = formatHm(lastLesson.endTime);
                             const date = formatYmd(firstLesson.date);
-                            
+
                             // Create a dedupe key based on the merged lesson group
-                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
+                            const groupIds = group
+                                .map(
+                                    (l) =>
+                                        l?.id ??
+                                        l?.lessonId ??
+                                        createCanonicalSignature(l)
+                                )
+                                .sort()
+                                .join(',');
                             const dedupeKey = [
                                 'cancelled_merged',
                                 user.id,
@@ -749,16 +777,16 @@ export class NotificationService {
                                 firstLesson?.startTime ?? '',
                                 lastLesson?.endTime ?? '',
                             ].join(':');
-                            
+
                             await this.createNotification({
                                 type: 'cancelled_lesson',
                                 title: 'Lessons Cancelled',
                                 message: `${subject} lessons on ${date} from ${startTime} to ${endTime} have been cancelled`,
                                 userId: user.id,
-                                data: { 
+                                data: {
                                     lessons: group,
                                     merged: true,
-                                    count: group.length 
+                                    count: group.length,
                                 },
                                 dedupeKey,
                             });
@@ -766,30 +794,36 @@ export class NotificationService {
                     }
                 }
 
-                // Process irregular lessons  
+                // Process irregular lessons
                 if (user.notificationSettings?.irregularLessonsEnabled) {
-                    const scope = user.notificationSettings?.irregularLessonsTimeScope || 'day';
-                    const irregularLessons = eligibleLessons.filter(lesson => {
-                        const isIrregular = lesson.code === 'irregular' ||
-                            lesson.te?.some((t: any) => t.orgname) ||
-                            lesson.ro?.some((r: any) => r.orgname);
-                        
-                        if (!isIrregular) return false;
+                    const scope =
+                        user.notificationSettings?.irregularLessonsTimeScope ||
+                        'day';
+                    const irregularLessons = eligibleLessons.filter(
+                        (lesson) => {
+                            const isIrregular =
+                                lesson.code === 'irregular' ||
+                                lesson.te?.some((t: any) => t.orgname) ||
+                                lesson.ro?.some((r: any) => r.orgname);
 
-                        let shouldNotify = false;
-                        if (scope === 'day') {
-                            shouldNotify = lesson.date === todayString;
-                        } else if (scope === 'week') {
-                            shouldNotify =
-                                lesson.date >= startOfWeekString &&
-                                lesson.date <= endOfWeekString;
+                            if (!isIrregular) return false;
+
+                            let shouldNotify = false;
+                            if (scope === 'day') {
+                                shouldNotify = lesson.date === todayString;
+                            } else if (scope === 'week') {
+                                shouldNotify =
+                                    lesson.date >= startOfWeekString &&
+                                    lesson.date <= endOfWeekString;
+                            }
+                            return shouldNotify;
                         }
-                        return shouldNotify;
-                    });
+                    );
 
                     // Group consecutive irregular lessons for merged notifications
-                    const irregularGroups = groupLessonsForNotifications(irregularLessons);
-                    
+                    const irregularGroups =
+                        groupLessonsForNotifications(irregularLessons);
+
                     for (const group of irregularGroups) {
                         if (group.length === 1) {
                             // Single lesson - use existing logic
@@ -827,11 +861,12 @@ export class NotificationService {
                             // Multiple consecutive lessons - create merged notification
                             const firstLesson = group[0];
                             const lastLesson = group[group.length - 1];
-                            const subject = firstLesson.su?.[0]?.name || 'Lesson';
+                            const subject =
+                                firstLesson.su?.[0]?.name || 'Lesson';
                             const startTime = formatHm(firstLesson.startTime);
                             const endTime = formatHm(lastLesson.endTime);
                             const date = formatYmd(firstLesson.date);
-                            
+
                             // Collect all irregular flags from the group
                             const allIrregularFlags = new Set<string>();
                             for (const lesson of group) {
@@ -842,10 +877,19 @@ export class NotificationService {
                                 if (lesson.ro?.some((r: any) => r.orgname))
                                     allIrregularFlags.add('room');
                             }
-                            const irregularFlags = Array.from(allIrregularFlags).sort();
-                            
+                            const irregularFlags =
+                                Array.from(allIrregularFlags).sort();
+
                             // Create a dedupe key based on the merged lesson group
-                            const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
+                            const groupIds = group
+                                .map(
+                                    (l) =>
+                                        l?.id ??
+                                        l?.lessonId ??
+                                        createCanonicalSignature(l)
+                                )
+                                .sort()
+                                .join(',');
                             const dedupeKey = [
                                 'irregular_merged',
                                 user.id,
@@ -855,17 +899,19 @@ export class NotificationService {
                                 lastLesson?.endTime ?? '',
                                 irregularFlags.join('|'),
                             ].join(':');
-                            
+
                             await this.createNotification({
                                 type: 'irregular_lesson',
                                 title: 'Irregular Lessons',
-                                message: `${subject} lessons on ${date} from ${startTime} to ${endTime} have irregular changes (${irregularFlags.join(', ')})`,
+                                message: `${subject} lessons on ${date} from ${startTime} to ${endTime} have irregular changes (${irregularFlags.join(
+                                    ', '
+                                )})`,
                                 userId: user.id,
-                                data: { 
+                                data: {
                                     lessons: group,
                                     merged: true,
                                     count: group.length,
-                                    irregularFlags
+                                    irregularFlags,
                                 },
                                 dedupeKey,
                             });
@@ -876,7 +922,9 @@ export class NotificationService {
 
             // Upcoming lesson reminders (Beta): send 5 minutes before start time
             if (options?.onlyUpcoming && user.notificationSettings) {
-                const now = this.getNowInUserTimezone(user.timezone || 'Europe/Berlin');
+                const now = this.getNowInUserTimezone(
+                    user.timezone || 'Europe/Berlin'
+                );
                 const nowMinutes = now.getHours() * 60 + now.getMinutes();
                 const todayYmd =
                     now.getFullYear() * 10000 +
@@ -891,7 +939,7 @@ export class NotificationService {
                     user.notificationSettings.upcomingLessonsEnabled === true;
 
                 // Filter lessons that are eligible for upcoming notifications
-                const eligibleUpcomingLessons = lessons.filter(lesson => {
+                const eligibleUpcomingLessons = lessons.filter((lesson) => {
                     if (!lesson?.startTime) return false;
                     if (Number(lesson.date) !== todayYmd) return false;
                     if (lesson.code === 'cancelled') return false; // don't remind cancelled
@@ -903,17 +951,18 @@ export class NotificationService {
                 });
 
                 // Group eligible upcoming lessons for merged notifications
-                const upcomingGroups = groupLessonsForNotifications(eligibleUpcomingLessons);
+                const upcomingGroups = groupLessonsForNotifications(
+                    eligibleUpcomingLessons
+                );
 
                 for (const group of upcomingGroups) {
                     // Only send if at least one device opted in for upcoming reminders
                     const devicePrefs = (user.notificationSettings
                         ?.devicePreferences || {}) as Record<string, any>;
-                    const anyDeviceEnabled = Object.values(
-                        devicePrefs
-                    ).some((p: any) => p?.upcomingLessonsEnabled);
-                    if (!anyDeviceEnabled && !globalUpcomingEnabled)
-                        continue;
+                    const anyDeviceEnabled = Object.values(devicePrefs).some(
+                        (p: any) => p?.upcomingLessonsEnabled
+                    );
+                    if (!anyDeviceEnabled && !globalUpcomingEnabled) continue;
 
                     if (group.length === 1) {
                         // Single lesson - use existing logic
@@ -1014,9 +1063,17 @@ export class NotificationService {
                         const subject = firstLesson.su?.[0]?.name || 'Lesson';
                         const startTime = formatHm(firstLesson.startTime);
                         const endTime = formatHm(lastLesson.endTime);
-                        
+
                         // Create a dedupe key based on the merged lesson group
-                        const groupIds = group.map(l => l?.id ?? l?.lessonId ?? createCanonicalSignature(l)).sort().join(',');
+                        const groupIds = group
+                            .map(
+                                (l) =>
+                                    l?.id ??
+                                    l?.lessonId ??
+                                    createCanonicalSignature(l)
+                            )
+                            .sort()
+                            .join(',');
                         const dedupeKey = [
                             'upcoming_merged',
                             user.id,
@@ -1025,7 +1082,7 @@ export class NotificationService {
                             firstLesson?.startTime ?? '',
                             lastLesson?.endTime ?? '',
                         ].join(':');
-                        
+
                         try {
                             const existingUpcoming = await (
                                 prisma as any
@@ -1047,12 +1104,13 @@ export class NotificationService {
                         const teacher = (firstLesson.te ?? [])
                             .map((t: any) => t.name)
                             .join(', ');
-                        
+
                         // Check for irregular changes across the group
-                        const hasIrregular = group.some(lesson => 
-                            lesson.code === 'irregular' ||
-                            lesson.te?.some((t: any) => t.orgname) ||
-                            lesson.ro?.some((r: any) => r.orgname)
+                        const hasIrregular = group.some(
+                            (lesson) =>
+                                lesson.code === 'irregular' ||
+                                lesson.te?.some((t: any) => t.orgname) ||
+                                lesson.ro?.some((r: any) => r.orgname)
                         );
 
                         const irregularPartsSet: Set<string> = new Set();
@@ -1062,20 +1120,33 @@ export class NotificationService {
                                 if (lesson.te?.some((t: any) => t.orgname)) {
                                     const changes = lesson.te
                                         .filter((t: any) => t.orgname)
-                                        .map((t: any) => `${t.orgname} → ${t.name}`)
+                                        .map(
+                                            (t: any) =>
+                                                `${t.orgname} → ${t.name}`
+                                        )
                                         .join(', ');
-                                    if (changes) irregularPartsSet.add(`Teacher: ${changes}`);
+                                    if (changes)
+                                        irregularPartsSet.add(
+                                            `Teacher: ${changes}`
+                                        );
                                 }
                                 if (lesson.ro?.some((r: any) => r.orgname)) {
                                     const changes = lesson.ro
                                         .filter((r: any) => r.orgname)
-                                        .map((r: any) => `${r.orgname} → ${r.name}`)
+                                        .map(
+                                            (r: any) =>
+                                                `${r.orgname} → ${r.name}`
+                                        )
                                         .join(', ');
-                                    if (changes) irregularPartsSet.add(`Room: ${changes}`);
+                                    if (changes)
+                                        irregularPartsSet.add(
+                                            `Room: ${changes}`
+                                        );
                                 }
                             }
                         }
-                        const irregularParts: string[] = Array.from(irregularPartsSet);
+                        const irregularParts: string[] =
+                            Array.from(irregularPartsSet);
 
                         const title = 'Upcoming lessons in 5 minutes';
                         const details = [
@@ -1137,7 +1208,9 @@ export class NotificationService {
             for (const user of users) {
                 try {
                     // Calculate current time in the user's timezone
-                    const now = this.getNowInUserTimezone(user.timezone || 'Europe/Berlin');
+                    const now = this.getNowInUserTimezone(
+                        user.timezone || 'Europe/Berlin'
+                    );
                     const todayYmd =
                         now.getFullYear() * 10000 +
                         (now.getMonth() + 1) * 100 +

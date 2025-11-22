@@ -68,6 +68,20 @@ model Timetable {
     payload    Json
 }
 
+model ClassTimetableCache {
+    id        String   @id @default(uuid())
+    createdAt DateTime @default(now())
+    classId   Int
+
+    // Cached JSON payload for Untis class timetable
+    rangeStart DateTime?
+    rangeEnd   DateTime?
+    payload    Json
+
+    @@index([classId, createdAt])
+    @@index([classId, rangeStart, rangeEnd, createdAt])
+}
+
 model SessionToken {
     id        String   @id @default(uuid())
     createdAt DateTime @default(now())

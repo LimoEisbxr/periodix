@@ -7,8 +7,12 @@ import {
     getHolidays,
     getUserClasses,
     getClassTimetable,
+    searchClasses,
 } from '../services/untisService.js';
-import { untisUserLimiter } from '../server/untisRateLimiter.js';
+import {
+    untisUserLimiter,
+    untisClassLimiter,
+} from '../server/untisRateLimiter.js';
 import { prisma } from '../store/prisma.js';
 
 const router = Router();
@@ -178,7 +182,7 @@ router.get(
 );
 
 // Get list of classes available to the user
-router.get('/classes', authMiddleware, untisUserLimiter, async (req, res) => {
+router.get('/classes', authMiddleware, untisClassLimiter, async (req, res) => {
     try {
         const classes = await getUserClasses(req.user!.id);
         res.json({ ok: true, classes });
@@ -200,7 +204,7 @@ router.get('/classes', authMiddleware, untisUserLimiter, async (req, res) => {
 router.get(
     '/class/:classId',
     authMiddleware,
-    untisUserLimiter,
+    untisClassLimiter,
     async (req, res) => {
         const params = classRangeSchema.safeParse({
             ...req.query,
@@ -223,6 +227,35 @@ router.get(
         } catch (e: any) {
             const status = e?.status || 500;
             console.error('[timetable/class] error', {
+                status,
+                message: e?.message,
+                code: e?.code,
+            });
+            res.status(status).json({
+                error: e?.message || 'Failed',
+                code: e?.code,
+            });
+        }
+    }
+);
+
+// Search for classes
+router.get(
+    '/classes/search',
+    authMiddleware,
+    untisClassLimiter,
+    async (req, res) => {
+        const q = (req.query.q as string)?.trim();
+        if (!q || q.length < 2) {
+            return res.json({ classes: [] });
+        }
+
+        try {
+            const classes = await searchClasses(req.user!.id, q);
+            res.json({ classes });
+        } catch (e: any) {
+            const status = e?.status || 500;
+            console.error('[timetable/classes/search] error', {
                 status,
                 message: e?.message,
                 code: e?.code,

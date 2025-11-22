@@ -938,3 +938,13 @@ export async function getClassTimetable(
     const url = `/api/timetable/class/${classId}${query ? `?${query}` : ''}`;
     return api<TimetableResponse>(url, { token });
 }
+
+export async function searchClasses(
+    token: string,
+    query: string
+): Promise<{ classes: ClassInfo[] }> {
+    return api<{ classes: ClassInfo[] }>(
+        `/api/timetable/classes/search?q=${encodeURIComponent(query)}`,
+        { token }
+    );
+}

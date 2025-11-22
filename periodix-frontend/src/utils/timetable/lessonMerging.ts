@@ -1,48 +1,83 @@
 import type { Lesson, Homework, Exam } from '../../types';
 import { untisToMinutes } from '../dates';
 
+const MERGE_MAX_BREAK_MINUTES = 5;
+const LESSON_IDENTIFIER_FIELDS = [
+    'lsid',
+    'ls',
+    'lsNumber',
+    'lsnumber',
+    'lessonId',
+    'lessonID',
+];
+
+type MaybeIdentifiedLesson = Lesson & Record<string, unknown>;
+
+function sortAndJoinNames(entries?: Array<{ name?: string }>) {
+    return (entries || [])
+        .map((entry) => entry?.name || '')
+        .filter(Boolean)
+        .sort()
+        .join(',');
+}
+
+function extractLessonIdentifier(lesson: MaybeIdentifiedLesson): string | null {
+    for (const key of LESSON_IDENTIFIER_FIELDS) {
+        const value = lesson[key];
+        if (
+            typeof value === 'number' ||
+            (typeof value === 'string' && value.trim().length > 0)
+        ) {
+            return String(value);
+        }
+    }
+    return null;
+}
+
+function buildLessonBaseSignature(lesson: Lesson): string {
+    const subject = lesson.su?.[0]?.name ?? lesson.activityType ?? '';
+    const teacher = sortAndJoinNames(lesson.te);
+    const room = sortAndJoinNames(lesson.ro);
+    const code = lesson.code || '';
+    return `${subject}|${teacher}|${room}|${code}`;
+}
+
+function deriveLessonSignature(lesson: Lesson) {
+    return {
+        identifier: extractLessonIdentifier(lesson as MaybeIdentifiedLesson),
+        base: buildLessonBaseSignature(lesson),
+    };
+}
+
+function getLessonMergeKey(lesson: Lesson): string {
+    const signature = deriveLessonSignature(lesson);
+    if (signature.identifier) {
+        return `${lesson.date}|id:${signature.identifier}`;
+    }
+    return `${lesson.date}|base:${signature.base}`;
+}
+
 /**
  * Check if two lessons can be merged based on matching criteria
  * and break time between them (5 minutes or less)
  */
 export function canMergeLessons(lesson1: Lesson, lesson2: Lesson): boolean {
-    // Check if subjects match
-    const subject1 = lesson1.su?.[0]?.name ?? lesson1.activityType ?? '';
-    const subject2 = lesson2.su?.[0]?.name ?? lesson2.activityType ?? '';
-    if (subject1 !== subject2) return false;
+    if (lesson1.date !== lesson2.date) return false;
 
-    // Check if teachers match
-    const teacher1 = lesson1.te
-        ?.map((t) => t.name)
-        .sort()
-        .join(',');
-    const teacher2 = lesson2.te
-        ?.map((t) => t.name)
-        .sort()
-        .join(',');
-    if (teacher1 !== teacher2) return false;
+    const sig1 = deriveLessonSignature(lesson1);
+    const sig2 = deriveLessonSignature(lesson2);
+    const sameGroup =
+        sig1.identifier && sig2.identifier
+            ? sig1.identifier === sig2.identifier
+            : sig1.base === sig2.base;
 
-    // Check if rooms match
-    const room1 = lesson1.ro
-        ?.map((r) => r.name)
-        .sort()
-        .join(',');
-    const room2 = lesson2.ro
-        ?.map((r) => r.name)
-        .sort()
-        .join(',');
-    if (room1 !== room2) return false;
+    if (!sameGroup) return false;
 
-    // Check if lesson codes match (both cancelled, both irregular, etc.)
-    if (lesson1.code !== lesson2.code) return false;
-
-    // Calculate break time in minutes
     const lesson1EndMin = untisToMinutes(lesson1.endTime);
     const lesson2StartMin = untisToMinutes(lesson2.startTime);
     const breakMinutes = lesson2StartMin - lesson1EndMin;
 
-    // Merge if break is 5 minutes or less (including negative for overlapping)
-    return breakMinutes <= 5;
+    return breakMinutes <= MERGE_MAX_BREAK_MINUTES;
 }
 
 /**
@@ -105,7 +140,10 @@ export function deduplicateHomework(
 /**
  * Deduplicate exam arrays
  */
-export function deduplicateExams(exams1: Exam[] = [], exams2: Exam[] = []): Exam[] {
+export function deduplicateExams(
+    exams1: Exam[] = [],
+    exams2: Exam[] = []
+): Exam[] {
     const allExams = [...exams1, ...exams2];
     const deduplicated: Exam[] = [];
 
@@ -150,7 +188,7 @@ export function mergeTwoLessons(lesson1: Lesson, lesson2: Lesson): Lesson {
         if (!parts.length) return undefined;
         return parts.join(' | ');
     };
-    
+
     return {
         ...lesson1, // Use first lesson as base
         startTime: Math.min(lesson1.startTime, lesson2.startTime),
@@ -173,29 +211,38 @@ export function mergeTwoLessons(lesson1: Lesson, lesson2: Lesson): Lesson {
 export function mergeLessons(lessons: Lesson[]): Lesson[] {
     if (lessons.length <= 1) return lessons;
 
-    // Sort lessons by date and start time
-    const sortedLessons = [...lessons].sort((a, b) => {
-        if (a.date !== b.date) return a.date - b.date;
-        return a.startTime - b.startTime;
-    });
-
-    const merged: Lesson[] = [];
-    let currentLesson = sortedLessons[0];
-
-    for (let i = 1; i < sortedLessons.length; i++) {
-        const nextLesson = sortedLessons[i];
-
-        // Only try to merge lessons on the same day
-        if (currentLesson.date === nextLesson.date && canMergeLessons(currentLesson, nextLesson)) {
-            currentLesson = mergeTwoLessons(currentLesson, nextLesson);
-        } else {
-            merged.push(currentLesson);
-            currentLesson = nextLesson;
-        }
+    const buckets = new Map<string, Lesson[]>();
+    for (const lesson of lessons) {
+        const key = getLessonMergeKey(lesson);
+        const bucket = buckets.get(key);
+        if (bucket) bucket.push(lesson);
+        else buckets.set(key, [lesson]);
     }
 
-    // Add the last lesson
-    merged.push(currentLesson);
+    const merged: Lesson[] = [];
+    for (const bucket of buckets.values()) {
+        bucket.sort((a, b) => {
+            if (a.date !== b.date) return a.date - b.date;
+            if (a.startTime !== b.startTime) return a.startTime - b.startTime;
+            return a.endTime - b.endTime;
+        });
 
-    return merged;
+        let current = bucket[0];
+        for (let i = 1; i < bucket.length; i++) {
+            const next = bucket[i];
+            if (canMergeLessons(current, next)) {
+                current = mergeTwoLessons(current, next);
+            } else {
+                merged.push(current);
+                current = next;
+            }
+        }
+        merged.push(current);
+    }
+
+    return merged.sort((a, b) => {
+        if (a.date !== b.date) return a.date - b.date;
+        if (a.startTime !== b.startTime) return a.startTime - b.startTime;
+        return a.endTime - b.endTime;
+    });
 }
