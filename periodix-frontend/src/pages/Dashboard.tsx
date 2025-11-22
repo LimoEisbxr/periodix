@@ -83,7 +83,14 @@ export default function Dashboard({
     onUserUpdate: (u: User) => void;
 }) {
     // Selected date (week is derived from this)
-    const [start, setStart] = useState<string>(() => fmtLocal(new Date()));
+    const [start, setStart] = useState<string>(() => {
+        const now = new Date();
+        const day = now.getDay();
+        // If Saturday (6) or Sunday (0), show next week
+        if (day === 6) return fmtLocal(addDays(now, 2));
+        if (day === 0) return fmtLocal(addDays(now, 1));
+        return fmtLocal(now);
+    });
     const [mine, setMine] = useState<TimetableResponse | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [colorError, setColorError] = useState<string | null>(null);

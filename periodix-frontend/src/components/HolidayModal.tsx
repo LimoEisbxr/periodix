@@ -28,7 +28,7 @@ export default function HolidayModal({
         let raf2: number | null = null;
         if (isOpen) {
             if (animatingOut) return;
-            
+
             setEntered(false);
             lockScroll();
             raf1 = requestAnimationFrame(() => {

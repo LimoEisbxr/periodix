@@ -288,6 +288,11 @@ html.dark .label {
 .week-picker-right-gap {
     margin-right: 0.2rem; /* default smaller gap for regular browser */
 }
+@media (max-width: 768px) {
+    .week-picker-right-gap {
+        margin-right: 1.6rem; /* Increased gap for mobile browsers */
+    }
+}
 @media (display-mode: standalone) {
     .week-picker-right-gap {
         margin-right: max(
