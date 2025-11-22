@@ -269,7 +269,9 @@ export default function AbsencePanel({
                     ref={scrollAreaRef}
                     className="flex-1 overflow-y-auto absence-scroll relative"
                 >
-                    <div className="bg-white dark:bg-slate-950 p-4 border-b border-slate-200 dark:border-slate-800">
+                    <div
+                        className="bg-white dark:bg-slate-950 p-4 border-b border-slate-200 dark:border-slate-800"
+                    >
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
                             <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                 Timeframe

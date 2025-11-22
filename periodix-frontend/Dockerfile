@@ -28,6 +28,10 @@ WORKDIR /usr/share/nginx/html
 # Copy built assets
 COPY --from=build /app/dist/ /usr/share/nginx/html
 
+# Fix permissions for Nginx
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html
+
 # Nginx config to support SPA routing and proxy /api to backend by default
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
