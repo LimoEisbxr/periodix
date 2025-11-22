@@ -27,16 +27,18 @@ export default function HolidayModal({
         let raf1: number | null = null;
         let raf2: number | null = null;
         if (isOpen) {
-            setAnimatingOut(false);
+            if (animatingOut) return;
+            
             setEntered(false);
             lockScroll();
             raf1 = requestAnimationFrame(() => {
                 raf2 = requestAnimationFrame(() => setEntered(true));
             });
         } else {
-            if (!animatingOut) {
-                unlockScroll();
+            if (animatingOut) {
+                setAnimatingOut(false);
             }
+            unlockScroll();
         }
         return () => {
             if (raf1) cancelAnimationFrame(raf1);
@@ -48,7 +50,6 @@ export default function HolidayModal({
         setEntered(false);
         setAnimatingOut(true);
         setTimeout(() => {
-            setAnimatingOut(false);
             unlockScroll();
             onClose();
         }, 200);

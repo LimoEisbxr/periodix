@@ -168,6 +168,7 @@ export type NotificationSettings = {
     irregularLessonsEnabled: boolean;
     cancelledLessonsEnabled: boolean;
     upcomingLessonsEnabled: boolean;
+    absencesEnabled: boolean;
     cancelledLessonsTimeScope: 'day' | 'week';
     irregularLessonsTimeScope: 'day' | 'week';
     devicePreferences?: Record<string, Record<string, unknown>>;

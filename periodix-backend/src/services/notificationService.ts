@@ -1,5 +1,9 @@
 import { prisma } from '../store/prisma.js';
-import { getOrFetchTimetableRange } from './untisService.js';
+import {
+    getOrFetchTimetableRange,
+    fetchAbsencesFromUntis,
+    storeAbsenceData,
+} from './untisService.js';
 import webpush from 'web-push';
 
 // Lesson merging utilities for notifications
@@ -138,9 +142,11 @@ export class NotificationService {
     private static instance: NotificationService;
     private intervalId: NodeJS.Timeout | null = null;
     private upcomingIntervalId: NodeJS.Timeout | null = null;
+    private absenceIntervalId: NodeJS.Timeout | null = null;
     // Reentrancy guards to avoid overlapping runs
     private isCheckingChanges = false;
     private isCheckingUpcoming = false;
+    private isCheckingAbsences = false;
 
     private constructor() {}
 
@@ -366,6 +372,10 @@ export class NotificationService {
                         case 'access_request':
                             flagKey = 'accessRequestsEnabled';
                             break;
+                        case 'absence_new':
+                        case 'absence_change':
+                            flagKey = 'absencesEnabled';
+                            break;
                         default:
                             flagKey = null;
                     }
@@ -450,6 +460,9 @@ export class NotificationService {
                 return true;
             case 'access_request':
                 return settings.accessRequestsEnabled;
+            case 'absence_new':
+            case 'absence_change':
+                return settings.absencesEnabled;
             default:
                 return true;
         }
@@ -681,22 +694,12 @@ export class NotificationService {
                         typeof lesson?.date === 'number'
                             ? (lesson.date as number)
                             : undefined;
-                    // Prefer endTime for past detection; fall back to startTime if endTime is missing
-                    const lEnd: number | undefined =
-                        typeof lesson?.endTime === 'number'
-                            ? (lesson.endTime as number)
-                            : typeof lesson?.startTime === 'number'
-                            ? (lesson.startTime as number)
-                            : undefined;
 
-                    if (
-                        typeof lDate === 'number' &&
-                        (lDate < todayString ||
-                            (lDate === todayString &&
-                                typeof lEnd === 'number' &&
-                                lEnd < nowHm))
-                    ) {
-                        return false; // past lesson
+                    // Only filter out lessons from past DAYS.
+                    // We keep today's past lessons so they can be merged with current/future lessons.
+                    // We will filter out fully-past groups later.
+                    if (typeof lDate === 'number' && lDate < todayString) {
+                        return false; // past day
                     }
                     return true;
                 });
@@ -727,6 +730,27 @@ export class NotificationService {
                         groupLessonsForNotifications(cancelledLessons);
 
                     for (const group of cancelledGroups) {
+                        // Skip group if it is fully in the past
+                        const lastLesson = group[group.length - 1];
+                        const lDate =
+                            typeof lastLesson?.date === 'number'
+                                ? lastLesson.date
+                                : undefined;
+                        const lEnd =
+                            typeof lastLesson?.endTime === 'number'
+                                ? lastLesson.endTime
+                                : undefined;
+
+                        if (
+                            typeof lDate === 'number' &&
+                            (lDate < todayString ||
+                                (lDate === todayString &&
+                                    typeof lEnd === 'number' &&
+                                    lEnd < nowHm))
+                        ) {
+                            continue;
+                        }
+
                         if (group.length === 1) {
                             // Single lesson - use existing logic
                             const lesson = group[0];
@@ -825,6 +849,27 @@ export class NotificationService {
                         groupLessonsForNotifications(irregularLessons);
 
                     for (const group of irregularGroups) {
+                        // Skip group if it is fully in the past
+                        const lastLesson = group[group.length - 1];
+                        const lDate =
+                            typeof lastLesson?.date === 'number'
+                                ? lastLesson.date
+                                : undefined;
+                        const lEnd =
+                            typeof lastLesson?.endTime === 'number'
+                                ? lastLesson.endTime
+                                : undefined;
+
+                        if (
+                            typeof lDate === 'number' &&
+                            (lDate < todayString ||
+                                (lDate === todayString &&
+                                    typeof lEnd === 'number' &&
+                                    lEnd < nowHm))
+                        ) {
+                            continue;
+                        }
+
                         if (group.length === 1) {
                             // Single lesson - use existing logic
                             const lesson = group[0];
@@ -1337,6 +1382,21 @@ export class NotificationService {
             }, 60 * 1000);
         }
 
+        // Separate loop for absences (runs every 6 hours)
+        if (!this.absenceIntervalId) {
+            this.absenceIntervalId = setInterval(async () => {
+                if (this.isCheckingAbsences) return;
+                this.isCheckingAbsences = true;
+                try {
+                    await this.checkAbsenceChanges();
+                } catch (e) {
+                    console.error('Absence check failed:', e);
+                } finally {
+                    this.isCheckingAbsences = false;
+                }
+            }, 6 * 60 * 60 * 1000);
+        }
+
         console.log(
             `Notification service started with ${intervalMinutes} minute interval`
         );
@@ -1353,6 +1413,11 @@ export class NotificationService {
             clearInterval(this.upcomingIntervalId);
             this.upcomingIntervalId = null;
             console.log('Upcoming reminder loop stopped');
+        }
+        if (this.absenceIntervalId) {
+            clearInterval(this.absenceIntervalId);
+            this.absenceIntervalId = null;
+            console.log('Absence check loop stopped');
         }
     }
 
@@ -1373,6 +1438,141 @@ export class NotificationService {
         } catch (error) {
             console.error('Failed to cleanup expired notifications:', error);
         }
+    }
+
+    // Check for absence changes and notify users
+    async checkAbsenceChanges(): Promise<void> {
+        try {
+            const users = await (prisma as any).user.findMany({
+                where: {
+                    notificationSettings: {
+                        absencesEnabled: true,
+                    },
+                },
+                include: {
+                    notificationSettings: true,
+                },
+            });
+
+            for (const user of users) {
+                try {
+                    // Check absences for a 6-month window (-3 to +3 months)
+                    const now = new Date();
+                    const start = new Date(now);
+                    start.setMonth(start.getMonth() - 3);
+                    const end = new Date(now);
+                    end.setMonth(end.getMonth() + 3);
+
+                    const freshAbsences = await fetchAbsencesFromUntis(
+                        user.id,
+                        start,
+                        end
+                    );
+
+                    // Fetch existing from DB
+                    const existingAbsences = await (
+                        prisma as any
+                    ).absence.findMany({
+                        where: {
+                            userId: user.id,
+                            startDate: {
+                                gte: parseInt(
+                                    start
+                                        .toISOString()
+                                        .slice(0, 10)
+                                        .replace(/-/g, '')
+                                ),
+                            },
+                            endDate: {
+                                lte: parseInt(
+                                    end
+                                        .toISOString()
+                                        .slice(0, 10)
+                                        .replace(/-/g, '')
+                                ),
+                            },
+                        },
+                    });
+
+                    const existingMap = new Map(
+                        existingAbsences.map((a: any) => [a.untisId, a])
+                    );
+
+                    for (const fresh of freshAbsences) {
+                        const existing = existingMap.get(fresh.id) as any;
+
+                        if (!existing) {
+                            // New absence
+                            const dateStr = this.formatAbsenceDate(
+                                fresh.startDate
+                            );
+                            await this.createNotification({
+                                type: 'absence_new',
+                                title: 'New Absence',
+                                message: `New absence recorded for ${dateStr}${
+                                    fresh.reason ? `: ${fresh.reason}` : ''
+                                }`,
+                                userId: user.id,
+                                data: fresh,
+                                dedupeKey: `absence_new:${user.id}:${fresh.id}`,
+                            });
+                        } else {
+                            // Check for changes
+                            const changes: string[] = [];
+                            if (existing.isExcused !== fresh.isExcused) {
+                                changes.push(
+                                    fresh.isExcused ? 'Excused' : 'Unexcused'
+                                );
+                            }
+                            if (existing.reason !== fresh.reason) {
+                                changes.push(
+                                    `Reason: ${fresh.reason || 'None'}`
+                                );
+                            }
+
+                            if (changes.length > 0) {
+                                const dateStr = this.formatAbsenceDate(
+                                    fresh.startDate
+                                );
+                                await this.createNotification({
+                                    type: 'absence_change',
+                                    title: 'Absence Updated',
+                                    message: `Absence on ${dateStr} updated: ${changes.join(
+                                        ', '
+                                    )}`,
+                                    userId: user.id,
+                                    data: { ...fresh, changes },
+                                    dedupeKey: `absence_change:${user.id}:${
+                                        fresh.id
+                                    }:${Date.now()}`, // Unique per update
+                                });
+                            }
+                        }
+                    }
+
+                    // Update DB
+                    await storeAbsenceData(user.id, freshAbsences);
+                } catch (e) {
+                    console.error(
+                        `Failed to check absences for user ${user.id}:`,
+                        e
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Failed to check absence changes:', error);
+        }
+    }
+
+    private formatAbsenceDate(dateInt: number): string {
+        if (!dateInt) return '';
+        const y = Math.floor(dateInt / 10000);
+        const m = Math.floor((dateInt % 10000) / 100);
+        const d = dateInt % 100;
+        return `${String(y)}-${String(m).padStart(2, '0')}-${String(d).padStart(
+            2,
+            '0'
+        )}`;
     }
 }
 

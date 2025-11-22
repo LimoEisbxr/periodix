@@ -43,6 +43,7 @@ export default function NotificationSettings({
         irregularLessonsEnabled?: boolean; // default follows global
         timetableChangesEnabled?: boolean; // default follows global
         accessRequestsEnabled?: boolean; // default follows global
+        absencesEnabled?: boolean; // default follows global
         [key: string]: unknown;
     }
     // Notification settings state
@@ -1050,6 +1051,96 @@ export default function NotificationSettings({
                                 </label>
                             </div>
                         )}
+
+                        {/* Absences toggle - new section */}
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h5 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                    Absences
+                                </h5>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Get notified when absences are created or
+                                    updated (this device)
+                                </p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={(() => {
+                                        const ep = endpoint ?? '';
+                                        const prefs: DevicePrefs =
+                                            (notificationSettings?.devicePreferences ??
+                                                {}) as DevicePrefs;
+                                        const entry = ep
+                                            ? (prefs[ep] as
+                                                  | DevicePrefEntry
+                                                  | undefined)
+                                            : undefined;
+                                        const globalOn =
+                                            notificationSettings?.absencesEnabled ??
+                                            false;
+                                        const perDevice =
+                                            entry?.absencesEnabled as
+                                                | boolean
+                                                | undefined;
+                                        return perDevice === undefined
+                                            ? globalOn
+                                            : perDevice === true;
+                                    })()}
+                                    onChange={async (e) => {
+                                        setDeviceToggleError(null);
+                                        setDeviceToggleBusy(true);
+                                        try {
+                                            let ep = endpoint;
+                                            if (!ep) {
+                                                const ok =
+                                                    await ensurePushSubscription();
+                                                if (!ok)
+                                                    throw new Error(
+                                                        'Push subscription required'
+                                                    );
+                                                const reg = await navigator
+                                                    .serviceWorker.ready;
+                                                const sub =
+                                                    await reg.pushManager.getSubscription();
+                                                ep = sub?.endpoint ?? null;
+                                                setEndpoint(ep);
+                                            }
+                                            if (!ep)
+                                                throw new Error(
+                                                    'No device endpoint available'
+                                                );
+                                            const prefs: DevicePrefs =
+                                                (notificationSettings?.devicePreferences ??
+                                                    {}) as DevicePrefs;
+                                            const current = (prefs[ep] ??
+                                                {}) as Record<string, unknown>;
+                                            const nextPrefs: DevicePrefs = {
+                                                ...prefs,
+                                                [ep]: {
+                                                    ...current,
+                                                    absencesEnabled:
+                                                        e.target.checked,
+                                                } as DevicePrefEntry,
+                                            };
+                                            await handleUpdateNotificationSettings(
+                                                { devicePreferences: nextPrefs }
+                                            );
+                                        } catch (err) {
+                                            setDeviceToggleError(
+                                                err instanceof Error
+                                                    ? err.message
+                                                    : 'Failed to update device setting'
+                                            );
+                                        } finally {
+                                            setDeviceToggleBusy(false);
+                                        }
+                                    }}
+                                    className="sr-only peer"
+                                />
+                                <div className="relative w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
                     </div>
                 )}
         </div>

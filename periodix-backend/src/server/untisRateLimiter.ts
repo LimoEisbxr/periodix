@@ -16,7 +16,7 @@ type LimiterConfig = {
 };
 
 const DEFAULT_WINDOW_MS = 5_000; // 5 seconds
-const DEFAULT_MAX_WITHIN_WINDOW = 6;
+const DEFAULT_MAX_WITHIN_WINDOW = 10;
 
 const store = new Map<string, Entry>();
 
@@ -74,5 +74,5 @@ export const untisUserLimiter = createLimiter();
 
 export const untisClassLimiter = createLimiter({
     bucket: 'class',
-    maxWithinWindow: 12,
+    maxWithinWindow: 20,
 });

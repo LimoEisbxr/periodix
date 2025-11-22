@@ -2364,3 +2364,70 @@ export async function searchClasses(
         )
         .slice(0, 20); // Limit results
 }
+
+export async function fetchAbsencesFromUntis(
+    userId: string,
+    start: Date,
+    end: Date
+) {
+    const untis = await getUntisClientForUser(userId);
+    try {
+        await untis.login();
+    } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('bad credentials')) {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
+
+    try {
+        if (typeof untis.getAbsentLesson !== 'function') {
+            return [];
+        }
+        const raw = await untis.getAbsentLesson(start, end, -1);
+        return Array.isArray(raw?.absences) ? raw.absences : [];
+    } finally {
+        try {
+            await untis.logout();
+        } catch {}
+    }
+}
+
+export async function storeAbsenceData(userId: string, absenceData: any[]) {
+    for (const abs of absenceData) {
+        try {
+            await (prisma as any).absence.upsert({
+                where: { userId_untisId: { userId, untisId: abs.id } },
+                update: {
+                    startDate: abs.startDate,
+                    endDate: abs.endDate,
+                    startTime: abs.startTime,
+                    endTime: abs.endTime,
+                    reason: abs.reason,
+                    isExcused: abs.isExcused,
+                    fetchedAt: new Date(),
+                },
+                create: {
+                    untisId: abs.id,
+                    userId,
+                    startDate: abs.startDate,
+                    endDate: abs.endDate,
+                    startTime: abs.startTime,
+                    endTime: abs.endTime,
+                    reason: abs.reason,
+                    isExcused: abs.isExcused,
+                },
+            });
+        } catch (e: any) {
+            console.warn(
+                `[absence] failed to store absence ${abs.id}:`,
+                e?.message
+            );
+        }
+    }
+}

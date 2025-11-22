@@ -9,12 +9,12 @@ const router = Router();
 
 // Rate limit for color operations
 const colorLimiter = rateLimit({
-    windowMs: 1, // 60 * 1000, // 1 minute
-    limit: 300, // increased: allow up to 300 requests per minute per IP
+    windowMs: 60 * 1000, // 1 minute
+    limit: 1000, // increased: allow up to 1000 requests per minute per IP
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     message: {
-        error: 'Too many color requests (300/min). Please slow down briefly.',
+        error: 'Too many color requests (1000/min). Please slow down briefly.',
     },
 });
 

@@ -24,6 +24,7 @@ model User {
   onboardingCompleted       Boolean                    @default(false)
   exams                     Exam[]
   homework                  Homework[]
+  absences                  Absence[]
   lessonColors              LessonColorSetting[]
   notifications             Notification[]
   notificationSettings      NotificationSettings?
@@ -46,17 +47,17 @@ model Timetable {
 }
 
 model ClassTimetableCache {
-    id        String   @id @default(uuid())
-    createdAt DateTime @default(now())
-    classId   Int
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  classId   Int
 
-    // Cached JSON payload for Untis class timetable
-    rangeStart DateTime?
-    rangeEnd   DateTime?
-    payload    Json
+  // Cached JSON payload for Untis class timetable
+  rangeStart DateTime?
+  rangeEnd   DateTime?
+  payload    Json
 
-    @@index([classId, createdAt])
-    @@index([classId, rangeStart, rangeEnd, createdAt])
+  @@index([classId, createdAt])
+  @@index([classId, rangeStart, rangeEnd, createdAt])
 }
 
 model SessionToken {
@@ -195,6 +196,7 @@ model NotificationSettings {
   cancelledLessonsTimeScope   String   @default("day")
   irregularLessonsTimeScope   String   @default("day")
   upcomingLessonsEnabled      Boolean  @default(false)
+  absencesEnabled             Boolean  @default(false)
   user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -268,4 +270,22 @@ model HourlyStats {
 
   @@unique([date, hour])
   @@index([date, hour])
+}
+
+model Absence {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  untisId   Int
+  userId    String
+  startDate Int
+  endDate   Int
+  startTime Int?
+  endTime   Int?
+  reason    String?
+  isExcused Boolean  @default(false)
+  fetchedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, untisId])
 }
