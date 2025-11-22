@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import {
+    useEffect,
+    useMemo,
+    useState,
+    useRef,
+    useCallback,
+    useLayoutEffect,
+} from 'react';
 import type {
     Lesson,
     TimetableResponse,
@@ -98,6 +105,7 @@ export default function Timetable({
     const totalMinutes = END_MIN - START_MIN;
     const [SCALE, setSCALE] = useState<number>(1);
     const [axisWidth, setAxisWidth] = useState<number>(56); // dynamic; shrinks on mobile
+    const [estimatedDayWidth, setEstimatedDayWidth] = useState<number>(0);
     // Single-day focus mode: when set to an ISO date string (yyyy-mm-dd) only that day is shown full-width
     const [focusedDay, setFocusedDay] = useState<string | null>(null);
 
@@ -336,6 +344,9 @@ export default function Timetable({
             const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
             // Raised mobile threshold from 640px to 768px (see utils/responsive.ts)
             const isMobile = isMobileViewport(vw);
+
+            let currentAxisWidth = 56;
+
             // Target vertical pixels for timetable (excludes header) – dynamic for better fill
             // Mobile: keep more compact (1.0–1.15 px/min) to avoid excessive scrolling
             if (isMobile) {
@@ -344,16 +355,30 @@ export default function Timetable({
                     Math.max(660, Math.floor(vh * 0.9))
                 );
                 setSCALE(targetHeight / totalMinutes);
-                setAxisWidth(vw < 400 ? 40 : 44);
+                currentAxisWidth = vw < 400 ? 40 : 44;
+                setAxisWidth(currentAxisWidth);
                 setDAY_HEADER_PX(40); // a little taller, easier tap
                 setBOTTOM_PAD_PX(6);
             } else {
                 const targetHeight = Math.max(560, Math.floor(vh * 0.78));
                 setSCALE(targetHeight / totalMinutes);
-                setAxisWidth(56);
+                currentAxisWidth = 56;
+                setAxisWidth(currentAxisWidth);
                 setDAY_HEADER_PX(32);
                 setBOTTOM_PAD_PX(14);
             }
+
+            // Calculate estimated day width for week view
+            // Available width = vw - axisWidth
+            // Gaps: 4 gaps between 5 columns.
+            // Gap size: sm (640px) ? 12px (gap-3) : 4px (gap-1)
+            const isTailwindSm = vw >= 640;
+            const gapSize = isTailwindSm ? 12 : 4;
+            const totalGaps = 4 * gapSize;
+            const availableWidth = vw - currentAxisWidth;
+            // Ensure we don't divide by zero or get negative
+            const colWidth = Math.max(0, (availableWidth - totalGaps) / 5);
+            setEstimatedDayWidth(colWidth);
         }
         computeScale();
         window.addEventListener('resize', computeScale);
@@ -534,6 +559,21 @@ export default function Timetable({
             );
         };
     }, []);
+    // Reset transform when week changes (continuous band effect)
+    useLayoutEffect(() => {
+        // Only reset if we have a non-zero translation (meaning we just navigated)
+        if (translateX !== 0) {
+            setTranslateX(0);
+            setIsAnimating(false);
+            isAnimatingRef.current = false;
+            setIsDragging(false);
+            isDraggingRef.current = false;
+            flingVelocityRef.current = 0;
+            lastNavigationTimeRef.current = Date.now();
+        }
+    }, [weekStart]);
+
+    const hasData = !!data;
     const [gestureAttachAttempts, setGestureAttachAttempts] = useState(0);
     useEffect(() => {
         const el = containerRef.current;
@@ -601,8 +641,11 @@ export default function Timetable({
             }
             const target = e.target as HTMLElement | null;
             // Ignore swipe if user starts on an interactive control
+            // BUT allow swiping on the sticky header (day buttons)
+            const isHeader = target?.closest('.sticky');
             if (
                 target &&
+                !isHeader &&
                 (target.closest(INTERACTIVE_SELECTOR) ||
                     target.tagName === 'INPUT')
             ) {
@@ -616,6 +659,7 @@ export default function Timetable({
             touchStartX.current = e.touches[0].clientX;
             touchStartY.current = e.touches[0].clientY;
             touchStartTime.current = Date.now();
+            flingVelocityRef.current = 0;
         };
 
         const handleTouchMove = (e: TouchEvent) => {
@@ -663,7 +707,13 @@ export default function Timetable({
             }
 
             // Check if this is more of a vertical scroll (but not pull-to-refresh)
-            if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 20) {
+            // Only cancel if we haven't moved much horizontally yet (< 40px)
+            // This prevents snapping back if the user swipes diagonally but clearly intends to swipe horizontally
+            if (
+                Math.abs(dy) > Math.abs(dx) &&
+                Math.abs(dy) > 20 &&
+                Math.abs(dx) < 40
+            ) {
                 skipSwipe = true;
                 setIsDragging(false);
                 isDraggingRef.current = false;
@@ -694,9 +744,23 @@ export default function Timetable({
 
             setTranslateX(newTranslateX);
 
+            // Calculate instantaneous velocity for fling
+            const now = performance.now();
+            if (lastMoveTimeRef.current && lastMoveXRef.current !== null) {
+                const dt = now - lastMoveTimeRef.current;
+                const dxMove = currentX - lastMoveXRef.current;
+                if (dt > 8) {
+                    // Avoid division by zero or tiny intervals
+                    const v = Math.abs(dxMove / dt) * 1000;
+                    // Simple smoothing: 0.6 * new + 0.4 * old to reduce noise
+                    const oldV = flingVelocityRef.current || 0;
+                    flingVelocityRef.current = oldV * 0.4 + v * 0.6;
+                }
+            }
+
             // Track recent movement for velocity (use last segment for fling feel)
             lastMoveXRef.current = currentX;
-            lastMoveTimeRef.current = performance.now();
+            lastMoveTimeRef.current = now;
         };
 
         const performDayNavigation = (direction: 'prev' | 'next') => {
@@ -864,23 +928,47 @@ export default function Timetable({
                     // Immediately swap week (without visible jump) by resetting translateX after data update
                     // Use rAF so layout with final frame paints first
                     requestAnimationFrame(() => {
-                        onWeekNavigateRef.current?.(direction);
-                        // Snap to center for new current week
-                        setTranslateX(0);
-                        setIsAnimating(false);
-                        isAnimatingRef.current = false;
-                        setIsDragging(false);
-                        isDraggingRef.current = false;
-                        flingVelocityRef.current = 0;
-                        lastNavigationTimeRef.current = Date.now();
-                        // Reset wheel chain state cleanly
                         resetWheelChain();
-                        if (isDebugRef.current) {
-                            console.debug('[TT] navigation complete', {
-                                direction,
-                                lastNavigationTime:
-                                    lastNavigationTimeRef.current,
-                            });
+
+                        if (onWeekNavigateRef.current) {
+                            onWeekNavigateRef.current(direction);
+                            // Defer reset to useLayoutEffect on weekStart change
+                            if (isDebugRef.current) {
+                                console.debug(
+                                    '[TT] navigation callback fired, awaiting prop update'
+                                );
+                            }
+                            // Safety timeout in case prop update fails or is too slow
+                            setTimeout(() => {
+                                if (isAnimatingRef.current) {
+                                    setTranslateX(0);
+                                    setIsAnimating(false);
+                                    isAnimatingRef.current = false;
+                                    setIsDragging(false);
+                                    isDraggingRef.current = false;
+                                    flingVelocityRef.current = 0;
+                                    lastNavigationTimeRef.current = Date.now();
+                                }
+                            }, 400);
+                        } else {
+                            // No handler, snap back immediately
+                            setTranslateX(0);
+                            setIsAnimating(false);
+                            isAnimatingRef.current = false;
+                            setIsDragging(false);
+                            isDraggingRef.current = false;
+                            flingVelocityRef.current = 0;
+                            lastNavigationTimeRef.current = Date.now();
+                            if (isDebugRef.current) {
+                                console.debug(
+                                    '[TT] navigation complete (local reset)',
+                                    {
+                                        direction,
+                                        lastNavigationTime:
+                                            lastNavigationTimeRef.current,
+                                    }
+                                );
+                            }
                         }
                     });
                 }
@@ -1048,8 +1136,11 @@ export default function Timetable({
             if (nowTs - lastWheelNavTime < WHEEL_COOLDOWN_MS) return;
 
             const target = e.target as HTMLElement | null;
+            // Allow swiping on the sticky header (day buttons)
+            const isHeader = target?.closest('.sticky');
             if (
                 target &&
+                !isHeader &&
                 (target.closest(INTERACTIVE_SELECTOR) ||
                     target.tagName === 'INPUT')
             )
@@ -1097,15 +1188,18 @@ export default function Timetable({
                 wheelInitialScrollTop >= wheelInitialMaxScrollTop - 2;
             const verticalEdgePush =
                 (atTopStart && sumY < -25) || (atBottomStart && sumY > 25);
-            if (verticalEdgePush && absY > 22) {
+
+            // Only block if vertical push is significant AND dominant-ish
+            // If we are clearly swiping horizontally (absX > absY * 1.2), don't let edge bounce block us
+            if (verticalEdgePush && absY > 22 && absY * 1.2 > absX) {
                 if (isDebugRef.current)
                     console.debug('[TT] wheel ignored: vertical edge bounce');
                 return;
             }
 
             // Threshold logic tuned for short rolling window
-            const HORIZONTAL_MIN = 95; // smaller because we only look at recent window
-            const RATIO_REQ = 1.7;
+            const HORIZONTAL_MIN = 60; // lowered from 95 to be more responsive
+            const RATIO_REQ = 1.5; // lowered from 1.7
             if (absY > 80) {
                 if (isDebugRef.current)
                     console.debug('[TT] wheel ignored: too vertical', {
@@ -1198,17 +1292,33 @@ export default function Timetable({
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [gestureAttachAttempts, forceGestureReattach]);
+    }, [gestureAttachAttempts, forceGestureReattach, hasData]);
 
     // Watchdog for stuck animation or leftover translation, plus gesture handler health check
     useEffect(() => {
         const interval = setInterval(() => {
             // Reset stuck animation state
+            // Only reset if:
+            // 1. Not animating
+            // 2. Has non-zero translation
+            // 3. Not currently dragging OR dragging has been stale for > 5 seconds (user inactivity)
+            const timeSinceLastMove = lastMoveTimeRef.current
+                ? performance.now() - lastMoveTimeRef.current
+                : 999999;
+            const isStaleDrag =
+                isDraggingRef.current && timeSinceLastMove > 5000;
+
             if (
                 !isAnimatingRef.current &&
-                Math.abs(translateXRef.current) > 2
+                Math.abs(translateXRef.current) > 2 &&
+                (!isDraggingRef.current || isStaleDrag)
             ) {
                 setTranslateX(0);
+                // If we force reset, ensure drag state is cleared too
+                if (isDraggingRef.current) {
+                    setIsDragging(false);
+                    isDraggingRef.current = false;
+                }
                 if (isDebugRef.current)
                     console.debug(
                         '[TT] watchdog: corrected non-zero translateX while not animating'
@@ -1845,6 +1955,9 @@ export default function Timetable({
                                                     onHolidayClick={
                                                         handleHolidayClick
                                                     }
+                                                    estimatedWidth={
+                                                        estimatedDayWidth
+                                                    }
                                                 />
                                             </div>
                                         );
@@ -2014,6 +2127,9 @@ export default function Timetable({
                                                     onHolidayClick={
                                                         handleHolidayClick
                                                     }
+                                                    estimatedWidth={
+                                                        estimatedDayWidth
+                                                    }
                                                 />
                                             </div>
                                         );
@@ -2110,6 +2226,9 @@ export default function Timetable({
                                                     }
                                                     onHolidayClick={
                                                         handleHolidayClick
+                                                    }
+                                                    estimatedWidth={
+                                                        estimatedDayWidth
                                                     }
                                                 />
                                             </div>

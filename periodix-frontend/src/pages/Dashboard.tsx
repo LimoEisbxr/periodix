@@ -635,12 +635,22 @@ export default function Dashboard({
             setLoadError('No class is linked to your account yet.');
             return;
         }
+
+        // Toggle off if already selected
+        if (selectedClass?.id === primaryClass.id) {
+            setSelectedClass(null);
+            setQueryText('');
+            setResults([]);
+            setMobileSearchOpen(false);
+            return;
+        }
+
         setSelectedClass(primaryClass);
         setSelectedUser(null);
         setQueryText(primaryClass.name);
         setResults([]);
         setMobileSearchOpen(false);
-    }, [primaryClass]);
+    }, [primaryClass, selectedClass]);
 
     // Load holidays
     useEffect(() => {
@@ -1190,6 +1200,40 @@ export default function Dashboard({
             document.removeEventListener('keydown', handleKey);
         };
     }, [results.length, mobileSearchOpen]);
+
+    const handleWeekNavigate = useCallback(
+        (dir: 'prev' | 'next') => {
+            const currentStart = new Date(start);
+            const nextDate =
+                dir === 'prev'
+                    ? addDays(currentStart, -7)
+                    : addDays(currentStart, 7);
+            const nextStartStr = fmtLocal(nextDate);
+
+            // Optimistic update: try to find cached data for the target week
+            // and set it immediately so Timetable has data during the transition
+            const targetWeekStart = startOfWeek(nextDate);
+            const s = fmtLocal(targetWeekStart);
+            const e = fmtLocal(addDays(targetWeekStart, 6));
+
+            let cached: TimetableResponse | null = null;
+            if (selectedClass) {
+                const cacheKey = `${selectedClass.id}:${s}:${e}`;
+                const entry = classTimetableCacheRef.current.get(cacheKey);
+                if (entry) cached = entry.data;
+            } else {
+                const targetUserId = selectedUser?.id || user.id;
+                cached = getCachedData(targetUserId, s, e);
+            }
+
+            if (cached) {
+                setMine(cached);
+            }
+
+            setStart(nextStartStr);
+        },
+        [start, selectedClass, selectedUser, user.id, getCachedData]
+    );
 
     useEffect(() => {
         if (isAbsencePanelOpen && !absenceData && !absencesLoading) {
@@ -1798,19 +1842,7 @@ export default function Dashboard({
                             serverLessonOffsets={lessonOffsets}
                             token={token}
                             viewingUserId={selectedUser?.id}
-                            onWeekNavigate={(dir) => {
-                                if (dir === 'prev') {
-                                    const ns = fmtLocal(
-                                        addDays(new Date(start), -7)
-                                    );
-                                    setStart(ns);
-                                } else {
-                                    const ns = fmtLocal(
-                                        addDays(new Date(start), 7)
-                                    );
-                                    setStart(ns);
-                                }
-                            }}
+                            onWeekNavigate={handleWeekNavigate}
                             getAdjacentWeekData={getAdjacentWeekData}
                             onLessonModalStateChange={setIsLessonModalOpen}
                             isOnboardingActive={isOnboardingOpen}

@@ -40,6 +40,7 @@ export type DayColumnProps = {
     suppressHolidayBanner?: boolean;
     isClassTimetable?: boolean;
     onHolidayClick?: (holiday: Holiday) => void;
+    estimatedWidth?: number;
 };
 
 const SingleLineFitText: FC<{ text: string; className?: string }> = ({
@@ -115,6 +116,7 @@ const DayColumn: FC<DayColumnProps> = ({
     suppressHolidayBanner = false,
     isClassTimetable = false,
     onHolidayClick,
+    estimatedWidth = 0,
 }) => {
     // Developer JSON modal state
     const [showDayJson, setShowDayJson] = useState(false);
@@ -162,8 +164,20 @@ const DayColumn: FC<DayColumnProps> = ({
     const COLLAPSE_ENTER_WIDTH = isClassTimetable ? 100 : 195; // px (collapse when below this)
     const COLLAPSE_EXIT_WIDTH = isClassTimetable ? 105 : 200; // px (re-enable side-by-side when above this)
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const [collapseNarrow, setCollapseNarrow] = useState(false);
-    const [measuredWidth, setMeasuredWidth] = useState<number>(0);
+    const [collapseNarrow, setCollapseNarrow] = useState(() => {
+        if (estimatedWidth > 0 && estimatedWidth < COLLAPSE_ENTER_WIDTH)
+            return true;
+        return false;
+    });
+    const [measuredWidth, setMeasuredWidth] = useState<number>(estimatedWidth);
+
+    // Update measuredWidth if estimatedWidth changes significantly and we haven't measured yet
+    useEffect(() => {
+        if (measuredWidth === 0 && estimatedWidth > 0) {
+            setMeasuredWidth(estimatedWidth);
+        }
+    }, [estimatedWidth, measuredWidth]);
+
     useLayoutEffect(() => {
         const el = containerRef.current;
         if (!el) return;
