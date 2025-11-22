@@ -5,6 +5,7 @@ import SettingsModal from '../components/SettingsModal';
 import NotificationBell from '../components/NotificationBell';
 import NotificationPanel from '../components/NotificationPanel';
 import OnboardingModal from '../components/OnboardingModal';
+import AbsencePanel from '../components/AbsencePanel';
 import {
     API_BASE,
     getLessonColors,
@@ -23,6 +24,7 @@ import {
     getUserClasses,
     getClassTimetable,
     searchClasses,
+    getAbsentLessons,
     type ClassInfo,
 } from '../api';
 import {
@@ -46,7 +48,11 @@ import type {
     Notification,
     TimetableFallbackReason,
     Holiday,
+    AbsenceResponse,
+    DateRange,
+    AbsencePreset,
 } from '../types';
+import { getAbsencePresetRange } from '../utils/absencePresets';
 
 type SearchResult =
     | { type: 'user'; id: string; username: string; displayName: string | null }
@@ -127,6 +133,17 @@ export default function Dashboard({
     const classTimetableCacheRef = useRef<
         Map<string, { data: TimetableResponse; timestamp: number }>
     >(new Map());
+    const [isAbsencePanelOpen, setIsAbsencePanelOpen] = useState(false);
+    const [absenceData, setAbsenceData] = useState<AbsenceResponse | null>(
+        null
+    );
+    const [absencesLoading, setAbsencesLoading] = useState(false);
+    const [absencesError, setAbsencesError] = useState<string | null>(null);
+    const [absencePreset, setAbsencePreset] =
+        useState<AbsencePreset>('schoolYear');
+    const [absenceRange, setAbsenceRange] = useState<DateRange>(() =>
+        getAbsencePresetRange('schoolYear')
+    );
 
     // Initialize timetable cache hook
     const { getTimetableData, getCachedData, invalidateCache } =
@@ -203,6 +220,51 @@ export default function Dashboard({
     // Onboarding state
     const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
     const [isLessonModalOpen, setIsLessonModalOpen] = useState(false);
+
+    const loadAbsences = useCallback(
+        async (rangeOverride?: DateRange) => {
+            const targetRange =
+                rangeOverride ?? getAbsencePresetRange(absencePreset);
+            setAbsenceRange(targetRange);
+            setAbsencesLoading(true);
+            setAbsencesError(null);
+            try {
+                const res = await getAbsentLessons(token, targetRange);
+                setAbsenceData(res);
+            } catch (err) {
+                let msg =
+                    err instanceof Error
+                        ? err.message
+                        : 'Failed to load absences';
+                try {
+                    const parsed = JSON.parse(msg);
+                    if (parsed?.error) msg = parsed.error;
+                } catch {
+                    /* ignore parse errors */
+                }
+                setAbsencesError(msg);
+            } finally {
+                setAbsencesLoading(false);
+            }
+        },
+        [token, absencePreset]
+    );
+
+    const handleAbsencePresetChange = useCallback(
+        (preset: AbsencePreset) => {
+            setAbsencePreset(preset);
+            const range = getAbsencePresetRange(preset);
+            loadAbsences(range);
+        },
+        [loadAbsences]
+    );
+
+    const presetReference = new Date();
+    const presetRanges: Record<AbsencePreset, DateRange> = {
+        thisMonth: getAbsencePresetRange('thisMonth', presetReference),
+        schoolYear: getAbsencePresetRange('schoolYear', presetReference),
+        allTime: getAbsencePresetRange('allTime', presetReference),
+    };
 
     // (Analytics moved into Settings modal; no tab bar on dashboard anymore)
 
@@ -408,7 +470,7 @@ export default function Dashboard({
                             data: res,
                             timestamp: Date.now(),
                         });
-                    } catch (err) {
+                    } catch {
                         // Ignore prefetch errors
                     }
                 });
@@ -1027,7 +1089,14 @@ export default function Dashboard({
 
                 const users = (
                     Array.isArray(usersData.users) ? usersData.users : []
-                ).map((u: any) => ({ ...u, type: 'user' as const }));
+                ).map((u: unknown) => ({
+                    ...(u as {
+                        id: string;
+                        username: string;
+                        displayName?: string | null;
+                    }),
+                    type: 'user' as const,
+                }));
 
                 const classesList =
                     classesData &&
@@ -1036,7 +1105,7 @@ export default function Dashboard({
                         ? classesData.classes
                         : [];
 
-                const classes = classesList.map((c: any) => ({
+                const classes = classesList.map((c: ClassInfo) => ({
                     ...c,
                     type: 'class' as const,
                 }));
@@ -1121,6 +1190,39 @@ export default function Dashboard({
         };
     }, [results.length, mobileSearchOpen]);
 
+    useEffect(() => {
+        if (isAbsencePanelOpen && !absenceData && !absencesLoading) {
+            void loadAbsences(absenceRange);
+        }
+    }, [
+        isAbsencePanelOpen,
+        absenceData,
+        absencesLoading,
+        loadAbsences,
+        absenceRange,
+    ]);
+
+    useEffect(() => {
+        if (
+            typeof window === 'undefined' ||
+            !absenceData?.absences ||
+            !absenceData.absences.length
+        ) {
+            return;
+        }
+        absenceData.absences.forEach((absence, idx) => {
+            console.log('[Absence]', idx, {
+                id: absence.id,
+                startDate: absence.startDate,
+                endDate: absence.endDate,
+                startTime: absence.startTime,
+                endTime: absence.endTime,
+                createDate: absence.createDate,
+                lastUpdate: absence.lastUpdate,
+            });
+        });
+    }, [absenceData]);
+
     return (
         <div className={'min-h-screen'}>
             <header className="header-blur">
@@ -1129,9 +1231,35 @@ export default function Dashboard({
                         Periodix
                     </div>
                     <div className="flex items-center">
-                        <div className="text-sm text-slate-600 dark:text-slate-300 mr-4">
+                        <div className="hidden sm:block text-sm text-slate-600 dark:text-slate-300 mr-4">
                             {user.displayName || user.username}
                         </div>
+                        <button
+                            className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 mr-1"
+                            title="View absences"
+                            onClick={() => setIsAbsencePanelOpen(true)}
+                            aria-label="View absences"
+                        >
+                            <svg
+                                className="h-5 w-5 text-slate-600 dark:text-slate-300"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                            >
+                                <rect
+                                    x="3"
+                                    y="4"
+                                    width="18"
+                                    height="16"
+                                    rx="2"
+                                />
+                                <path d="M3 9h18" />
+                                <path d="M8 2v4" />
+                                <path d="M16 2v4" />
+                                <path d="M8 14h8" />
+                            </svg>
+                        </button>
                         <NotificationBell
                             notifications={notifications}
                             onClick={() => setIsNotificationPanelOpen(true)}
@@ -1199,10 +1327,30 @@ export default function Dashboard({
                             )}
                         </button>
                         <button
-                            className="btn-secondary ml-2 sm:ml-3"
+                            className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ml-1"
                             onClick={onLogout}
+                            title="Log out"
+                            aria-label="Log out"
                         >
-                            Logout
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                className="h-5 w-5 text-slate-600 dark:text-slate-300"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"
+                                />
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M10 17l5-5-5-5M15 12H3"
+                                />
+                            </svg>
                         </button>
                     </div>
                 </div>
@@ -2082,6 +2230,21 @@ export default function Dashboard({
                 isOpen={isSettingsModalOpen}
                 onClose={() => setIsSettingsModalOpen(false)}
                 onUserUpdate={onUserUpdate}
+            />
+
+            <AbsencePanel
+                isOpen={isAbsencePanelOpen}
+                onClose={() => setIsAbsencePanelOpen(false)}
+                data={absenceData}
+                loading={absencesLoading}
+                error={absencesError}
+                onRefresh={() => {
+                    void loadAbsences();
+                }}
+                selectedPreset={absencePreset}
+                onSelectPreset={handleAbsencePresetChange}
+                selectedRange={absenceRange}
+                presetRanges={presetRanges}
             />
 
             <NotificationPanel

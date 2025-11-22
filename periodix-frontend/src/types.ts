@@ -74,6 +74,60 @@ export type Exam = {
     text?: string;
 };
 
+export type AbsenceRecord = {
+    id: number;
+    startDate: number;
+    endDate: number;
+    startTime: number;
+    endTime: number;
+    createDate: number;
+    lastUpdate: number;
+    createdUser?: string;
+    updatedUser?: string;
+    reasonId?: number;
+    reason?: string;
+    text?: string;
+    canEdit?: boolean;
+    studentName?: string;
+    excuseStatus?: string;
+    isExcused?: boolean;
+    excuse?: {
+        id?: number;
+        text?: string;
+        excuseDate?: number;
+        excuseStatus?: string;
+        isExcused?: boolean;
+        userId?: number;
+        username?: string;
+    } | null;
+    interruptions?: unknown[];
+};
+
+export type AbsenceResponse = {
+    userId: string;
+    rangeStart: string | null;
+    rangeEnd: string | null;
+    absences: AbsenceRecord[];
+    absenceReasons: unknown[];
+    excuseStatuses: boolean;
+    showAbsenceReasonChange: boolean;
+    showCreateAbsence: boolean;
+    cached?: boolean;
+    stale?: boolean;
+    source?: TimetableSource;
+    lastUpdated?: string | null;
+    fallbackReason?: TimetableFallbackReason;
+    errorCode?: string | number;
+    errorMessage?: string;
+};
+
+export type DateRange = {
+    start: string;
+    end: string;
+};
+
+export type AbsencePreset = 'thisMonth' | 'schoolYear' | 'allTime';
+
 export type Holiday = {
     id: number;
     name: string;

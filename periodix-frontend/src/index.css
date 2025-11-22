@@ -136,6 +136,60 @@ html.dark .scroll-area-native::-webkit-scrollbar-thumb:hover {
     );
 }
 
+/* Absence panel specific scrollbar that matches panel chrome */
+.absence-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99, 102, 241, 0.7) rgba(226, 232, 240, 0.2);
+}
+html.dark .absence-scroll {
+    scrollbar-color: rgba(129, 140, 248, 0.7) rgba(15, 23, 42, 0.4);
+}
+.absence-scroll::-webkit-scrollbar {
+    width: 12px;
+}
+.absence-scroll::-webkit-scrollbar-track {
+    background: linear-gradient(180deg, rgba(241, 245, 249, 0.4), rgba(226, 232, 240, 0.4));
+    border-radius: 999px;
+    margin: 6px;
+}
+html.dark .absence-scroll::-webkit-scrollbar-track {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.8));
+}
+
+.absence-timeframe {
+    /* Base styles for the timeframe container */
+}
+@media (max-width: 640px) {
+    .absence-timeframe {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.95),
+            rgba(248, 250, 252, 0.92)
+        );
+        backdrop-filter: blur(16px);
+    }
+    html.dark .absence-timeframe {
+        background: rgba(2, 6, 23, 0.92);
+    }
+}
+.absence-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #6366f1, #0ea5e9);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    box-shadow: 0 2px 10px rgba(8, 145, 178, 0.2);
+}
+html.dark .absence-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #4c1d95, #0ea5e9);
+    box-shadow: 0 2px 10px rgba(8, 145, 178, 0.35);
+}
+.absence-scroll::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #4338ca, #0ea5e9);
+}
+
 /* Hide custom scrollbar entirely on small/mobile screens */
 /* Raised custom mobile breakpoint from 640px to 768px for JS/CSS synced behavior */
 @media (max-width: 768px) {

@@ -11,6 +11,7 @@ import type {
     AdminNotificationSettings,
     Holiday,
     TimetableResponse,
+    AbsenceResponse,
 } from './types';
 
 // Global logout handler - will be set by App.tsx
@@ -947,4 +948,22 @@ export async function searchClasses(
         `/api/timetable/classes/search?q=${encodeURIComponent(query)}`,
         { token }
     );
+}
+
+export async function getAbsentLessons(
+    token: string,
+    options?: { start?: string; end?: string; excuseStatusId?: number }
+): Promise<AbsenceResponse> {
+    const params = new URLSearchParams();
+    if (options?.start) params.append('start', options.start);
+    if (options?.end) params.append('end', options.end);
+    if (
+        typeof options?.excuseStatusId === 'number' &&
+        Number.isFinite(options.excuseStatusId)
+    ) {
+        params.append('excuseStatusId', String(options.excuseStatusId));
+    }
+    const query = params.toString();
+    const url = `/api/timetable/absences${query ? `?${query}` : ''}`;
+    return api<AbsenceResponse>(url, { token });
 }

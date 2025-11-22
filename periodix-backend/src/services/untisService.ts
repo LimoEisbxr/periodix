@@ -42,6 +42,28 @@ const allClassesCache = new Map<
 >();
 const ALL_CLASSES_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+const ABSENCE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_ABSENCE_RANGE_DAYS = 0; // 0 disables auto-clamping to support full-school-year / all-time queries
+
+type AbsenceCachePayload = {
+    userId: string;
+    rangeStart: string;
+    rangeEnd: string;
+    absences: any[];
+    absenceReasons: any[];
+    excuseStatuses: boolean;
+    showAbsenceReasonChange: boolean;
+    showCreateAbsence: boolean;
+    lastUpdated: Date;
+};
+
+type AbsenceCacheEntry = {
+    payload: AbsenceCachePayload;
+    timestamp: number;
+};
+
+const absenceCache = new Map<string, AbsenceCacheEntry>();
+
 let lastCleanupRun = 0; // In‑memory marker; acceptable for single process / ephemeral scaling
 let lastClassCleanupRun = 0; // Separate throttling for class timetable cache pruning
 
@@ -330,6 +352,76 @@ function serializeTimetableResponse(payload: {
         lastUpdated: payload.lastUpdated
             ? payload.lastUpdated.toISOString()
             : null,
+        fallbackReason: payload.fallbackReason,
+        errorCode: payload.errorCode,
+        errorMessage: payload.errorMessage,
+    };
+}
+
+function buildAbsenceCacheKey(args: {
+    userId: string;
+    rangeStart: Date;
+    rangeEnd: Date;
+    excuseStatusId: number;
+}) {
+    return `${args.userId}:${args.rangeStart.toISOString()}:${args.rangeEnd.toISOString()}:${args.excuseStatusId}`;
+}
+
+function normalizeAbsenceRange(start?: string, end?: string) {
+    const now = new Date();
+    let rangeEnd = end ? new Date(end) : now;
+    if (Number.isNaN(rangeEnd.getTime())) {
+        throw new AppError('Invalid end date', 400, 'INVALID_RANGE');
+    }
+    rangeEnd = endOfDay(rangeEnd);
+
+    let rangeStart = start ? new Date(start) : new Date(rangeEnd);
+    if (Number.isNaN(rangeStart.getTime())) {
+        throw new AppError('Invalid start date', 400, 'INVALID_RANGE');
+    }
+    if (!start) {
+        rangeStart.setDate(rangeStart.getDate() - 30);
+    }
+    rangeStart = startOfDay(rangeStart);
+
+    if (rangeStart > rangeEnd) {
+        const tmp = rangeStart;
+        rangeStart = startOfDay(new Date(rangeEnd));
+        rangeEnd = endOfDay(tmp);
+    }
+
+    if (MAX_ABSENCE_RANGE_DAYS > 0) {
+        const maxSpanMs = MAX_ABSENCE_RANGE_DAYS * 24 * 60 * 60 * 1000;
+        if (rangeEnd.getTime() - rangeStart.getTime() > maxSpanMs) {
+            rangeStart = new Date(rangeEnd.getTime() - maxSpanMs);
+            rangeStart = startOfDay(rangeStart);
+        }
+    }
+
+    return { rangeStart, rangeEnd };
+}
+
+function serializeAbsenceResponse(payload: {
+    payload: AbsenceCachePayload;
+    cached: boolean;
+    stale: boolean;
+    fallbackReason?: TimetableFallbackReason;
+    errorCode?: string | number | undefined;
+    errorMessage?: string | undefined;
+}) {
+    return {
+        userId: payload.payload.userId,
+        rangeStart: payload.payload.rangeStart,
+        rangeEnd: payload.payload.rangeEnd,
+        absences: payload.payload.absences,
+        absenceReasons: payload.payload.absenceReasons,
+        excuseStatuses: payload.payload.excuseStatuses,
+        showAbsenceReasonChange: payload.payload.showAbsenceReasonChange,
+        showCreateAbsence: payload.payload.showCreateAbsence,
+        cached: payload.cached,
+        stale: payload.stale,
+        source: payload.cached ? 'cache' : 'live',
+        lastUpdated: payload.payload.lastUpdated.toISOString(),
         fallbackReason: payload.fallbackReason,
         errorCode: payload.errorCode,
         errorMessage: payload.errorMessage,
@@ -997,6 +1089,144 @@ export async function getHolidays(userId: string) {
             return cached.data;
         }
         throw new AppError('Untis fetch failed', 502, 'UNTIS_FETCH_FAILED');
+    }
+}
+
+export async function getAbsentLessons(args: {
+    userId: string;
+    start?: string;
+    end?: string;
+    excuseStatusId?: number;
+}) {
+    const { rangeStart, rangeEnd } = normalizeAbsenceRange(
+        args.start,
+        args.end
+    );
+    const normalizedExcuseId =
+        typeof args.excuseStatusId === 'number' &&
+        Number.isFinite(args.excuseStatusId)
+            ? args.excuseStatusId
+            : -1;
+    const cacheKey = buildAbsenceCacheKey({
+        userId: args.userId,
+        rangeStart,
+        rangeEnd,
+        excuseStatusId: normalizedExcuseId,
+    });
+    const cached = absenceCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < ABSENCE_CACHE_TTL_MS) {
+        return serializeAbsenceResponse({
+            payload: cached.payload,
+            cached: true,
+            stale: false,
+        });
+    }
+
+    const untis = await getUntisClientForUser(args.userId);
+    let loggedIn = false;
+    try {
+        await untis.login();
+        loggedIn = true;
+    } catch (e: any) {
+        const msg = e?.message || '';
+        const code = msg.includes('bad credentials')
+            ? 'BAD_CREDENTIALS'
+            : 'UNTIS_LOGIN_FAILED';
+        if (cached) {
+            const fallbackReason: TimetableFallbackReason =
+                code === 'BAD_CREDENTIALS'
+                    ? 'BAD_CREDENTIALS'
+                    : 'UNTIS_UNAVAILABLE';
+            return serializeAbsenceResponse({
+                payload: cached.payload,
+                cached: true,
+                stale: true,
+                fallbackReason,
+                errorCode: code,
+                errorMessage: e?.message,
+            });
+        }
+        if (code === 'BAD_CREDENTIALS') {
+            throw new AppError(
+                'Invalid Untis credentials',
+                401,
+                'BAD_CREDENTIALS'
+            );
+        }
+        throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
+    }
+
+    try {
+        if (typeof untis.getAbsentLesson !== 'function') {
+            throw new AppError(
+                'Absent lessons not supported by Untis',
+                501,
+                'METHOD_NOT_AVAILABLE'
+            );
+        }
+        const raw = await untis.getAbsentLesson(
+            rangeStart,
+            rangeEnd,
+            normalizedExcuseId
+        );
+        const payload: AbsenceCachePayload = {
+            userId: args.userId,
+            rangeStart: rangeStart.toISOString(),
+            rangeEnd: rangeEnd.toISOString(),
+            absences: Array.isArray(raw?.absences) ? raw?.absences : [],
+            absenceReasons: Array.isArray(raw?.absenceReasons)
+                ? raw?.absenceReasons
+                : [],
+            excuseStatuses: Boolean(raw?.excuseStatuses),
+            showAbsenceReasonChange: Boolean(raw?.showAbsenceReasonChange),
+            showCreateAbsence: Boolean(raw?.showCreateAbsence),
+            lastUpdated: new Date(),
+        };
+        absenceCache.set(cacheKey, {
+            payload,
+            timestamp: Date.now(),
+        });
+        return serializeAbsenceResponse({
+            payload,
+            cached: false,
+            stale: false,
+        });
+    } catch (e: any) {
+        if (e instanceof AppError) {
+            if (cached && shouldFallbackToCache(e)) {
+                const fallbackReason: TimetableFallbackReason =
+                    String(e.code ?? '').toUpperCase() === 'BAD_CREDENTIALS'
+                        ? 'BAD_CREDENTIALS'
+                        : 'UNTIS_UNAVAILABLE';
+                return serializeAbsenceResponse({
+                    payload: cached.payload,
+                    cached: true,
+                    stale: true,
+                    fallbackReason,
+                    errorCode: e.code,
+                    errorMessage: e.message,
+                });
+            }
+            throw e;
+        }
+
+        if (cached) {
+            return serializeAbsenceResponse({
+                payload: cached.payload,
+                cached: true,
+                stale: true,
+                fallbackReason: 'UNTIS_UNAVAILABLE',
+                errorCode: 'UNTIS_FETCH_FAILED',
+                errorMessage: e?.message,
+            });
+        }
+        throw new AppError('Untis fetch failed', 502, 'UNTIS_FETCH_FAILED');
+    } finally {
+        if (loggedIn) {
+            try {
+                await untis.logout?.();
+            } catch {}
+        }
     }
 }
 

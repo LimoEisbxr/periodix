@@ -20,11 +20,12 @@ export function fmtLocal(d: Date) {
 }
 
 export function yyyymmddToISO(n: number) {
-    const s = String(n);
-    const y = Number(s.slice(0, 4));
-    const mo = Number(s.slice(4, 6));
-    const day = Number(s.slice(6, 8));
-    return fmtLocal(new Date(y, mo - 1, day));
+    if (typeof n !== 'number' || Number.isNaN(n)) return '';
+    const s = String(n).padStart(8, '0');
+    const y = s.slice(0, 4);
+    const mo = s.slice(4, 6);
+    const day = s.slice(6, 8);
+    return `${y}-${mo}-${day}`;
 }
 
 export function fmtHM(totalMin: number) {

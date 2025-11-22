@@ -8,6 +8,7 @@ import {
     getUserClasses,
     getClassTimetable,
     searchClasses,
+    getAbsentLessons,
 } from '../services/untisService.js';
 import {
     untisUserLimiter,
@@ -29,6 +30,12 @@ const classRangeSchema = z.object({
     end: z.string().optional(),
 });
 
+const absenceRangeSchema = z.object({
+    start: z.string().optional(),
+    end: z.string().optional(),
+    excuseStatusId: z.coerce.number().int().optional(),
+});
+
 router.get('/holidays', authMiddleware, async (req, res) => {
     try {
         const holidays = await getHolidays(req.user!.id);
@@ -46,6 +53,44 @@ router.get('/holidays', authMiddleware, async (req, res) => {
         });
     }
 });
+
+router.get(
+    '/absences',
+    authMiddleware,
+    untisUserLimiter,
+    async (req, res) => {
+        const params = absenceRangeSchema.safeParse(req.query);
+        if (!params.success) {
+            return res.status(400).json({ error: params.error.flatten() });
+        }
+        try {
+            const payload: {
+                userId: string;
+                start?: string;
+                end?: string;
+                excuseStatusId?: number;
+            } = { userId: req.user!.id };
+            if (params.data.start) payload.start = params.data.start;
+            if (params.data.end) payload.end = params.data.end;
+            if (typeof params.data.excuseStatusId === 'number') {
+                payload.excuseStatusId = params.data.excuseStatusId;
+            }
+            const data = await getAbsentLessons(payload);
+            res.json(data);
+        } catch (e: any) {
+            const status = e?.status || 500;
+            console.error('[timetable/absences] error', {
+                status,
+                message: e?.message,
+                code: e?.code,
+            });
+            res.status(status).json({
+                error: e?.message || 'Failed',
+                code: e?.code,
+            });
+        }
+    }
+);
 
 router.get('/me', authMiddleware, untisUserLimiter, async (req, res) => {
     try {
