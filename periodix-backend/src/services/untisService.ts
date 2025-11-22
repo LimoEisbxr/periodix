@@ -1450,6 +1450,24 @@ async function enrichLessonsWithHomeworkAndExams(
                         removals.add(`${l2.id}_${examId}`);
                     } else if (l2Score > l1Score) {
                         removals.add(`${l1.id}_${examId}`);
+                    } else {
+                        // Tie-breaker: Prefer the shorter lesson (more specific)
+                        // If durations are equal, prefer the one that starts later (often more specific in some contexts, or arbitrary stable sort)
+                        const d1 = l1.endTime - l1.startTime;
+                        const d2 = l2.endTime - l2.startTime;
+                        if (d1 < d2) {
+                            removals.add(`${l2.id}_${examId}`);
+                        } else if (d2 < d1) {
+                            removals.add(`${l1.id}_${examId}`);
+                        } else {
+                            // If durations equal, remove from the one with larger ID (arbitrary stable tie-breaker)
+                            // This ensures we don't keep it on both
+                            if (l1.id > l2.id) {
+                                removals.add(`${l1.id}_${examId}`);
+                            } else {
+                                removals.add(`${l2.id}_${examId}`);
+                            }
+                        }
                     }
                 }
             }

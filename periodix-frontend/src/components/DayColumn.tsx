@@ -1,5 +1,5 @@
 import type { FC, ReactElement } from 'react';
-import { useState, useLayoutEffect, useRef, useEffect } from 'react';
+import { useState, useLayoutEffect, useRef, useEffect, useMemo } from 'react';
 import FitText from './FitText';
 import EllipsisIcon from './EllipsisIcon';
 import type { Lesson, LessonColors, Holiday } from '../types';
@@ -16,6 +16,7 @@ export type Block = {
     endMin: number;
     colIndex: number;
     colCount: number;
+    keySuffix?: string;
 };
 
 export type DayColumnProps = {
@@ -142,7 +143,7 @@ const DayColumn: FC<DayColumnProps> = ({
             ro.disconnect();
             window.removeEventListener('resize', compute);
         };
-    }, [isClassTimetable]);
+    }, [isClassTimetable, COLLAPSE_ENTER_WIDTH, COLLAPSE_EXIT_WIDTH]);
 
     // DEBUG: Log items for Thursday 27.11.2025 to verify data arrival
     // (Removed debug logs)
@@ -170,6 +171,7 @@ const DayColumn: FC<DayColumnProps> = ({
         l: Lesson;
         startMin: number;
         endMin: number;
+        keySuffix?: string;
     };
 
     // Helper to determine sort priority for side-by-side ordering
@@ -213,19 +215,77 @@ const DayColumn: FC<DayColumnProps> = ({
         return 3;
     };
 
-    const blocks: Block[] = (() => {
-        const evs: ClusterBlock[] = items
-            .map((l) => {
-                const s = clamp(
+    // Slicing logic for mobile: split lessons into atomic segments to allow partial visibility
+    const slicedItems = useMemo(() => {
+        // If not mobile AND not collapsed narrow, just map to simple objects
+        if (!isMobile && !collapseNarrow) {
+            return items.map((l) => ({
+                l,
+                startMin: clamp(
                     untisToMinutes(l.startTime),
                     START_MIN,
                     END_MIN
-                );
-                const e = Math.max(
-                    s,
+                ),
+                endMin: Math.max(
+                    clamp(untisToMinutes(l.startTime), START_MIN, END_MIN),
                     clamp(untisToMinutes(l.endTime), START_MIN, END_MIN)
-                );
-                return { l, startMin: s, endMin: e };
+                ),
+                keySuffix: '',
+            }));
+        }
+
+        // Mobile (or narrow desktop): Slice lessons into atomic segments based on all start/end times
+        const cuts = new Set<number>();
+        // Add grid boundaries
+        cuts.add(START_MIN);
+        cuts.add(END_MIN);
+
+        items.forEach((l) => {
+            const s = clamp(untisToMinutes(l.startTime), START_MIN, END_MIN);
+            const e = clamp(untisToMinutes(l.endTime), START_MIN, END_MIN);
+            cuts.add(s);
+            cuts.add(e);
+        });
+
+        const sortedCuts = Array.from(cuts).sort((a, b) => a - b);
+        const result: {
+            l: Lesson;
+            startMin: number;
+            endMin: number;
+            keySuffix: string;
+        }[] = [];
+
+        items.forEach((l) => {
+            const s = clamp(untisToMinutes(l.startTime), START_MIN, END_MIN);
+            const e = clamp(untisToMinutes(l.endTime), START_MIN, END_MIN);
+            if (s >= e) return;
+
+            for (let i = 0; i < sortedCuts.length - 1; i++) {
+                const t1 = sortedCuts[i];
+                const t2 = sortedCuts[i + 1];
+                if (t1 >= s && t2 <= e) {
+                    // This segment is covered
+                    result.push({
+                        l,
+                        startMin: t1,
+                        endMin: t2,
+                        keySuffix: `-${t1}`,
+                    });
+                }
+            }
+        });
+        return result;
+    }, [items, isMobile, collapseNarrow, START_MIN, END_MIN]);
+
+    const blocks: Block[] = (() => {
+        const evs: ClusterBlock[] = slicedItems
+            .map((item) => {
+                return {
+                    l: item.l,
+                    startMin: item.startMin,
+                    endMin: item.endMin,
+                    keySuffix: item.keySuffix,
+                };
             })
             .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
         const clusters: Array<ClusterBlock[]> = [];
@@ -249,7 +309,9 @@ const DayColumn: FC<DayColumnProps> = ({
                 const pA = getLessonPriority(a.l);
                 const pB = getLessonPriority(b.l);
                 if (pA !== pB) return pA - pB;
-                return a.startMin - b.startMin;
+                if (a.startMin !== b.startMin) return a.startMin - b.startMin;
+                // Tie-breaker: shorter lessons first (e.g. single lesson vs double lesson starting at same time)
+                return a.endMin - a.startMin - (b.endMin - b.startMin);
             });
 
             const columns: Array<ClusterBlock[]> = [];
@@ -279,6 +341,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     endMin: ev.endMin,
                     colIndex: placement.get(ev)!,
                     colCount,
+                    keySuffix: ev.keySuffix,
                 });
         }
         return out;
@@ -397,8 +460,8 @@ const DayColumn: FC<DayColumnProps> = ({
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden rounded-xl">
                     <div className="absolute inset-0 bg-yellow-50/90 dark:bg-yellow-900/40 backdrop-blur-[2px]" />
                     <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
-                        <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-full">
-                            <h3 className="text-base sm:text-lg font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-1">
+                        <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl shadow-sm ring-1 ring-black/5 dark:ring-white/5 backdrop-blur-md max-w-full w-full">
+                            <h3 className="text-base sm:text-lg font-bold text-yellow-900 dark:text-yellow-100 leading-tight mb-1 whitespace-normal break-words">
                                 {holiday.longName}
                             </h3>
                             {holiday.name !== holiday.longName && (
@@ -528,8 +591,9 @@ const DayColumn: FC<DayColumnProps> = ({
                             widthPct =
                                 (100 - GAP_PCT * (visibleCols - 1)) /
                                 visibleCols;
-                            const visibleIndex = b.colIndex;
-                            leftPct = visibleIndex * (widthPct + GAP_PCT);
+                            // We are showing the first N columns (0 to visibleCols-1)
+                            // So visibleIndex is just colIndex
+                            leftPct = b.colIndex * (widthPct + GAP_PCT);
                         }
                     }
                 }
@@ -558,8 +622,9 @@ const DayColumn: FC<DayColumnProps> = ({
             })}
             {blocks
                 // render in top order to make bottom tracking deterministic
+                // Sort by start time asc, then duration desc (Longer first) so Shorter renders on top (z-index)
                 .slice()
-                .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
+                .sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin)
                 .map((b) => {
                     const { l } = b;
                     // Determine how many overlapping columns to render
@@ -611,16 +676,11 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Hide non-visible columns depending on state
                     if (b.colCount > 1) {
                         if (!isMobile && collapseNarrow) {
-                            if (b.colIndex !== b.colCount - 1) return null;
+                            // Show the first column (Highest Priority)
+                            if (b.colIndex !== 0) return null;
                         } else if (isCollapsed) {
-                            if (visibleCols <= 1) {
-                                // If we can only show 1, show the last one (top of stack)
-                                if (b.colIndex !== b.colCount - 1) return null;
-                            } else {
-                                // show only the last N columns that fit
-                                const cutoff = b.colCount - visibleCols;
-                                if (b.colIndex < cutoff) return null;
-                            }
+                            // Show the first N columns (Highest Priority)
+                            if (b.colIndex >= visibleCols) return null;
                         }
                     }
 
@@ -679,9 +739,9 @@ const DayColumn: FC<DayColumnProps> = ({
                                 widthPct =
                                     (100 - GAP_PCT * (visibleCols - 1)) /
                                     visibleCols;
-                                const cutoff = b.colCount - visibleCols;
-                                const visibleIndex = b.colIndex - cutoff;
-                                leftPct = visibleIndex * (widthPct + GAP_PCT);
+                                // We are showing the first N columns (0 to visibleCols-1)
+                                // So visibleIndex is just colIndex
+                                leftPct = b.colIndex * (widthPct + GAP_PCT);
                             }
                         }
                     }
@@ -846,7 +906,7 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     return (
                         <div
-                            key={l.id}
+                            key={`${l.id}${b.keySuffix || ''}`}
                             className={`timetable-lesson absolute rounded-md p-2 sm:p-2 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-6 border-rose-600 dark:border-rose-500'
