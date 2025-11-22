@@ -1186,7 +1186,7 @@ export async function getClassTimetable(args: {
         await untis.logout?.();
 
         return {
-            classId: args.classId,
+            userId: requester.id, // Use requester's ID for consistency with TimetableResponse type
             rangeStart: sd.toISOString(),
             rangeEnd: ed.toISOString(),
             payload: Array.isArray(lessonsData) ? lessonsData : [],
