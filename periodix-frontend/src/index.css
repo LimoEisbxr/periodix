@@ -148,12 +148,20 @@ html.dark .absence-scroll {
     width: 12px;
 }
 .absence-scroll::-webkit-scrollbar-track {
-    background: linear-gradient(180deg, rgba(241, 245, 249, 0.4), rgba(226, 232, 240, 0.4));
+    background: linear-gradient(
+        180deg,
+        rgba(241, 245, 249, 0.4),
+        rgba(226, 232, 240, 0.4)
+    );
     border-radius: 999px;
     margin: 6px;
 }
 html.dark .absence-scroll::-webkit-scrollbar-track {
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.8));
+    background: linear-gradient(
+        180deg,
+        rgba(15, 23, 42, 0.9),
+        rgba(30, 41, 59, 0.8)
+    );
 }
 
 .absence-timeframe {

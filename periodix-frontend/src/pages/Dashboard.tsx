@@ -199,13 +199,7 @@ export default function Dashboard({
                 targetWeekEndStr
             );
         },
-        [
-            weekStartDate,
-            selectedUser?.id,
-            user.id,
-            getCachedData,
-            selectedClass,
-        ]
+        [weekStartDate, selectedUser?.id, user.id, getCachedData, selectedClass]
     );
     // Short auto-retry countdown for rate limit (429)
     const [retrySeconds, setRetrySeconds] = useState<number | null>(null);

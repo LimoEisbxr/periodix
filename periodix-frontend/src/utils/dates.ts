@@ -58,17 +58,17 @@ export function untisToMinutes(hhmm: number) {
 export function getISOWeekNumber(date: Date): number {
     const target = new Date(date.valueOf());
     const dayOfWeek = (date.getDay() + 6) % 7; // Monday = 0, Sunday = 6
-    
+
     // Find the Thursday in this week (ISO week belongs to the year of its Thursday)
     target.setDate(target.getDate() - dayOfWeek + 3);
-    
+
     // Get January 1st of the target year
     const jan1 = new Date(target.getFullYear(), 0, 1);
-    
+
     // Calculate the number of days between the Thursday and January 1st
     const diffInMs = target.getTime() - jan1.getTime();
     const diffInDays = Math.floor(diffInMs / (24 * 60 * 60 * 1000));
-    
+
     // Week number = floor(days / 7) + 1
     return Math.floor(diffInDays / 7) + 1;
 }
@@ -79,14 +79,18 @@ export function getISOWeekNumber(date: Date): number {
  */
 export function getNextWorkday(date: Date): Date {
     const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    
-    if (dayOfWeek === 0) { // Sunday -> Monday
+
+    if (dayOfWeek === 0) {
+        // Sunday -> Monday
         return addDays(date, 1);
-    } else if (dayOfWeek === 6) { // Saturday -> Monday
+    } else if (dayOfWeek === 6) {
+        // Saturday -> Monday
         return addDays(date, 2);
-    } else if (dayOfWeek === 5) { // Friday -> Monday of next week
+    } else if (dayOfWeek === 5) {
+        // Friday -> Monday of next week
         return addDays(date, 3);
-    } else { // Monday-Thursday -> next day
+    } else {
+        // Monday-Thursday -> next day
         return addDays(date, 1);
     }
 }
@@ -97,14 +101,18 @@ export function getNextWorkday(date: Date): Date {
  */
 export function getPreviousWorkday(date: Date): Date {
     const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    
-    if (dayOfWeek === 0) { // Sunday -> Friday
+
+    if (dayOfWeek === 0) {
+        // Sunday -> Friday
         return addDays(date, -2);
-    } else if (dayOfWeek === 6) { // Saturday -> Friday
+    } else if (dayOfWeek === 6) {
+        // Saturday -> Friday
         return addDays(date, -1);
-    } else if (dayOfWeek === 1) { // Monday -> Friday of previous week
+    } else if (dayOfWeek === 1) {
+        // Monday -> Friday of previous week
         return addDays(date, -3);
-    } else { // Tuesday-Friday -> previous day
+    } else {
+        // Tuesday-Friday -> previous day
         return addDays(date, -1);
     }
 }

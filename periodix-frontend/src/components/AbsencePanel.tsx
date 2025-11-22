@@ -1,9 +1,4 @@
-import {
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
     AbsencePreset,
@@ -112,7 +107,8 @@ function formatAbsenceRange(absence: AbsenceRecord) {
 
 function getStatusChip(absence: AbsenceRecord) {
     const excused = Boolean(absence.isExcused || absence.excuse?.isExcused);
-    const statusText = absence.excuseStatus || (excused ? 'Excused' : 'Pending');
+    const statusText =
+        absence.excuseStatus || (excused ? 'Excused' : 'Pending');
     if (excused) {
         return {
             label: statusText,
@@ -209,7 +205,7 @@ export default function AbsencePanel({
             const overflow = node.scrollHeight - node.clientHeight;
             const canCollapse = overflow > 80;
             setCanCollapseTimeframe(canCollapse && isMobile);
-            
+
             // Reset transform if not collapsible
             if (!canCollapse && timeframeRef.current) {
                 timeframeRef.current.style.transform = '';
@@ -238,22 +234,23 @@ export default function AbsencePanel({
         mediaQuery?.addEventListener('change', handleMediaChange);
 
         const handleScroll = () => {
-            if (!isMobile || !canCollapseRef.current || !timeframeRef.current) return;
+            if (!isMobile || !canCollapseRef.current || !timeframeRef.current)
+                return;
             const current = node.scrollTop;
             const height = timeframeRef.current.offsetHeight || 220;
-            
+
             // Increase resistance for longer lists to prevent rapid collapse
             const resistance = node.scrollHeight > 1500 ? 4 : 2.5;
-            
+
             // Calculate offset based on scroll position (parallax effect)
             // We want the header to move up slower than the content
             // offset = scrollTop * (1 - 1/resistance)
             // But we clamp it so it doesn't move up more than its height
             const moveUp = Math.min(height, current / resistance);
-            
+
             timeframeRef.current.style.transform = `translateY(-${moveUp}px)`;
-            timeframeRef.current.style.opacity = `${1 - (moveUp / height)}`;
-            
+            timeframeRef.current.style.opacity = `${1 - moveUp / height}`;
+
             if (moveUp >= height * 0.95) {
                 timeframeRef.current.classList.add('collapsed');
             } else {
@@ -268,11 +265,7 @@ export default function AbsencePanel({
             node.removeEventListener('scroll', handleScroll);
             resizeObserver?.disconnect();
         };
-    }, [
-        isOpen,
-        shouldRender,
-        sortedAbsences.length,
-    ]);
+    }, [isOpen, shouldRender, sortedAbsences.length]);
 
     const isCached = Boolean(data?.cached);
     const isStale = Boolean(data?.stale);
@@ -376,7 +369,8 @@ export default function AbsencePanel({
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             {ABSENCE_PRESET_ORDER.map((preset) => {
                                 const label = ABSENCE_PRESET_LABELS[preset];
-                                const range = presetRanges[preset] || selectedRange;
+                                const range =
+                                    presetRanges[preset] || selectedRange;
                                 const preview = formatDateRange(range, true);
                                 const isSelected = preset === selectedPreset;
                                 return (
@@ -415,12 +409,13 @@ export default function AbsencePanel({
 
                         {isCached && isStale && (
                             <div className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200">
-                                Showing cached data because Untis is currently unavailable.
+                                Showing cached data because Untis is currently
+                                unavailable.
                             </div>
                         )}
 
                         {loading && !sortedAbsences.length ? (
-                                <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                            <div className="flex flex-col items-center justify-center h-48 text-slate-500">
                                 <svg
                                     className="h-8 w-8 animate-spin"
                                     viewBox="0 0 24 24"
@@ -438,7 +433,9 @@ export default function AbsencePanel({
                                         className="opacity-75"
                                     />
                                 </svg>
-                                <p className="mt-3 text-sm">Loading absences…</p>
+                                <p className="mt-3 text-sm">
+                                    Loading absences…
+                                </p>
                             </div>
                         ) : sortedAbsences.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-48 text-center text-slate-500 dark:text-slate-400">
@@ -461,7 +458,8 @@ export default function AbsencePanel({
                                     No absences in this range
                                 </p>
                                 <p className="text-sm mt-1">
-                                    Choose a different preset to search for older records.
+                                    Choose a different preset to search for
+                                    older records.
                                 </p>
                             </div>
                         ) : (
@@ -489,7 +487,8 @@ export default function AbsencePanel({
                                                     {rangeInfo.endLabel && (
                                                         <>
                                                             {' '}
-                                                            – {rangeInfo.endLabel}
+                                                            –{' '}
+                                                            {rangeInfo.endLabel}
                                                         </>
                                                     )}
                                                 </p>
@@ -541,8 +540,12 @@ export default function AbsencePanel({
                                         )}
 
                                         <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400">
-                                            {created && <span>Created {created}</span>}
-                                            {updated && <span>Updated {updated}</span>}
+                                            {created && (
+                                                <span>Created {created}</span>
+                                            )}
+                                            {updated && (
+                                                <span>Updated {updated}</span>
+                                            )}
                                         </div>
                                     </div>
                                 );

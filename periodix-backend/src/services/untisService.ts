@@ -364,7 +364,11 @@ function buildAbsenceCacheKey(args: {
     rangeEnd: Date;
     excuseStatusId: number;
 }) {
-    return `${args.userId}:${args.rangeStart.toISOString()}:${args.rangeEnd.toISOString()}:${args.excuseStatusId}`;
+    return `${
+        args.userId
+    }:${args.rangeStart.toISOString()}:${args.rangeEnd.toISOString()}:${
+        args.excuseStatusId
+    }`;
 }
 
 function normalizeAbsenceRange(start?: string, end?: string) {
