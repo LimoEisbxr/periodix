@@ -161,8 +161,8 @@ const DayColumn: FC<DayColumnProps> = ({
     // Collapse-overlap state for narrow columns even when not considered "mobile"
     // Use hysteresis so layout doesn't flicker near the boundary.
     // Collapse when narrower than ENTER, expand back to side-by-side when wider than EXIT.
-    const COLLAPSE_ENTER_WIDTH = isClassTimetable ? 100 : 195; // px (collapse when below this)
-    const COLLAPSE_EXIT_WIDTH = isClassTimetable ? 105 : 200; // px (re-enable side-by-side when above this)
+    const COLLAPSE_ENTER_WIDTH = isClassTimetable ? 80 : 140; // px (collapse when below this)
+    const COLLAPSE_EXIT_WIDTH = isClassTimetable ? 85 : 145; // px (re-enable side-by-side when above this)
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [collapseNarrow, setCollapseNarrow] = useState(() => {
         if (estimatedWidth > 0 && estimatedWidth < COLLAPSE_ENTER_WIDTH)
@@ -455,7 +455,7 @@ const DayColumn: FC<DayColumnProps> = ({
     return (
         <div
             key={keyStr}
-            className="relative px-1.5 first:pl-3 last:pr-3 overflow-hidden rounded-xl"
+            className="relative px-0.5 first:pl-1 last:pr-1 overflow-hidden rounded-xl"
             style={{ height: containerHeight }}
             ref={containerRef}
             onClick={(e) => {
@@ -717,11 +717,11 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Desktop wide: render all columns
                     // Narrow (measured) non-mobile: collapse to 1 (rightmost)
                     // Mobile: render as many as reasonably fit at a minimum width; otherwise collapse to 1
-                    const GAP_PCT = 1.5; // Reduced gap for better space utilization
+                    const GAP_PCT = 0.8; // Reduced gap for better space utilization
                     const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
-                    const MOBILE_MIN_COLUMN_WIDTH = 140; // px - min per-lesson width on mobile to allow side-by-side
-                    const DESKTOP_MIN_COLUMN_WIDTH = isClassTimetable ? 28 : 60; // px - min per-lesson width on desktop before collapsing
-                    const DESKTOP_MAX_COLUMNS = 3;
+                    const MOBILE_MIN_COLUMN_WIDTH = 110; // px - min per-lesson width on mobile to allow side-by-side
+                    const DESKTOP_MIN_COLUMN_WIDTH = isClassTimetable ? 28 : 45; // px - min per-lesson width on desktop before collapsing
+                    const DESKTOP_MAX_COLUMNS = 4; // Allow up to 4 lessons side-by-side
 
                     let visibleCols = b.colCount;
 

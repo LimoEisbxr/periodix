@@ -1994,13 +1994,13 @@ export default function Timetable({
                                     transform: `translateX(calc(-33.333% + ${translateX}px))`,
                                     width: '300%',
                                     transition: 'none',
-                                    gap: '0.75rem',
+                                    gap: '0.375rem',
                                 }}
                             >
                                 {/* Previous Week */}
                                 <div
-                                    className="flex gap-x-1 sm:gap-x-3 relative"
-                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                    className="flex gap-x-0.5 sm:gap-x-1.5 relative"
+                                    style={{ width: 'calc(33.333% - 0.25rem)' }}
                                 >
                                     {prevWeekDays.map((d) => {
                                         const key = fmtLocal(d);
@@ -2091,8 +2091,8 @@ export default function Timetable({
                                 </div>
                                 {/* Current Week */}
                                 <div
-                                    className="flex gap-x-1 sm:gap-x-3 relative"
-                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                    className="flex gap-x-0.5 sm:gap-x-1.5 relative"
+                                    style={{ width: 'calc(33.333% - 0.25rem)' }}
                                 >
                                     {/* Current time line moved to parent container */}
 
@@ -2193,8 +2193,8 @@ export default function Timetable({
                                 </div>
                                 {/* Next Week */}
                                 <div
-                                    className="flex gap-x-1 sm:gap-x-3 relative"
-                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                    className="flex gap-x-0.5 sm:gap-x-1.5 relative"
+                                    style={{ width: 'calc(33.333% - 0.25rem)' }}
                                 >
                                     {nextWeekDays.map((d) => {
                                         const key = fmtLocal(d);
