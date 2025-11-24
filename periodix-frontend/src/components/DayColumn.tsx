@@ -1043,13 +1043,13 @@ const DayColumn: FC<DayColumnProps> = ({
                                 <>
                                     {/* subtle left edge bar to suggest stacking */}
                                     <div
-                                        className="absolute inset-y-0 left-0 w-1 rounded-l-md bg-black/20 dark:bg-white/20 pointer-events-none sm:hidden"
+                                        className="absolute inset-y-0 left-0 w-1 rounded-l-md bg-black/20 dark:bg-white/20 pointer-events-none"
                                         aria-hidden="true"
                                         style={{ mixBlendMode: 'soft-light' }}
                                     />
                                     {/* stacked-card inner outlines to hint multiple layers */}
                                     <div
-                                        className="absolute inset-0 pointer-events-none sm:hidden"
+                                        className="absolute inset-0 pointer-events-none"
                                         aria-hidden="true"
                                     >
                                         <div className="absolute inset-0 rounded-md border border-white/25 dark:border-white/20 opacity-40" />
@@ -1110,37 +1110,39 @@ const DayColumn: FC<DayColumnProps> = ({
                             <div className="absolute top-1 right-1 hidden sm:flex flex-col items-end gap-1">
                                 <div className="flex gap-1 items-center">
                                     {/* Desktop/narrow stacked indicator placed with badges when overlaps are collapsed */}
-                                    {isDesktopCollapsed && b.colCount > 1 && (
-                                        <div
-                                            className="w-4 h-4 rounded-[4px] bg-black/25 dark:bg-white/20 flex items-center justify-center shadow-sm ring-1 ring-black/20 dark:ring-white/20"
-                                            title="Multiple overlapping lessons"
-                                        >
-                                            <svg
-                                                width="12"
-                                                height="9"
-                                                viewBox="0 0 16 12"
-                                                fill="none"
-                                                xmlns="http://www.w3.org/2000/svg"
+                                    {(isDesktopCollapsed ||
+                                        isMobileCollapsed) &&
+                                        b.colCount > 1 && (
+                                            <div
+                                                className="w-4 h-4 rounded-[4px] bg-black/25 dark:bg-white/20 flex items-center justify-center shadow-sm ring-1 ring-black/20 dark:ring-white/20"
+                                                title="Multiple overlapping lessons"
                                             >
-                                                <rect
-                                                    x="4"
-                                                    y="3"
-                                                    width="11"
-                                                    height="7"
-                                                    rx="2"
-                                                    fill="rgba(0,0,0,0.45)"
-                                                />
-                                                <rect
-                                                    x="1"
-                                                    y="1"
-                                                    width="11"
-                                                    height="7"
-                                                    rx="2"
-                                                    fill="rgba(255,255,255,0.7)"
-                                                />
-                                            </svg>
-                                        </div>
-                                    )}
+                                                <svg
+                                                    width="12"
+                                                    height="9"
+                                                    viewBox="0 0 16 12"
+                                                    fill="none"
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                >
+                                                    <rect
+                                                        x="4"
+                                                        y="3"
+                                                        width="11"
+                                                        height="7"
+                                                        rx="2"
+                                                        fill="rgba(0,0,0,0.45)"
+                                                    />
+                                                    <rect
+                                                        x="1"
+                                                        y="1"
+                                                        width="11"
+                                                        height="7"
+                                                        rx="2"
+                                                        fill="rgba(255,255,255,0.7)"
+                                                    />
+                                                </svg>
+                                            </div>
+                                        )}
                                     {l.homework && l.homework.length > 0 && (
                                         <div className="w-3 h-3 bg-amber-400 dark:bg-amber-500 rounded-full flex items-center justify-center shadow-sm">
                                             <svg
