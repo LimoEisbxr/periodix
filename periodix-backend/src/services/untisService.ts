@@ -757,43 +757,6 @@ async function fetchAndStoreUntis(args: {
                     name: l.exam?.name || 'Exam',
                     text: l.lstext || l.info || l.exam?.text || 'Exam',
                 }));
-            } else {
-                // 2. Keyword scan (Legacy fallback)
-                // Only use this if no explicit exams are found, to avoid false positives (like notes about exams)
-                const potentialExams = lessonsData.filter((l: any) => {
-                    const txt = (l.lstext || l.info || '').toLowerCase();
-                    const type = (l.activityType || '').toLowerCase();
-                    return (
-                        type.includes('exam') ||
-                        type.includes('klausur') ||
-                        txt.includes('klausur') ||
-                        txt.includes('test') ||
-                        txt.includes('exam')
-                    );
-                });
-
-                if (potentialExams.length > 0) {
-                    console.debug(
-                        `[timetable] found ${potentialExams.length} potential exams via keywords`
-                    );
-                    // Map lessons to Exam structure
-                    examData = potentialExams.map((l: any) => ({
-                        id: l.id, // Use lesson ID as exam ID
-                        date: l.date,
-                        startTime: l.startTime,
-                        endTime: l.endTime,
-                        subject: l.su?.[0]
-                            ? { id: l.su[0].id, name: l.su[0].name }
-                            : undefined,
-                        teachers: l.te?.map((t: any) => t.name),
-                        rooms: l.ro?.map((r: any) => r.name),
-                        name: 'Exam', // Generic name
-                        text:
-                            l.lstext ||
-                            l.info ||
-                            'Exam detected from timetable',
-                    }));
-                }
             }
         }
     } catch (e: any) {
