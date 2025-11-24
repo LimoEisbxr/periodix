@@ -1891,6 +1891,97 @@ export default function Timetable({
                                 internalHeaderPx={internalHeaderPx}
                             />
                         </div>
+
+                        {/* Current time line overlay - moved outside overflow-hidden container */}
+                        {showNowLine && (
+                            <div
+                                aria-hidden
+                                className="pointer-events-none absolute top-0 bottom-0 z-50"
+                                style={{
+                                    left: `${axisWidth}px`,
+                                    right: 0,
+                                    overflow: 'visible',
+                                }}
+                            >
+                                <div
+                                    className="relative h-full"
+                                    style={{
+                                        transform: `translateX(${translateX}px)`,
+                                        marginLeft: '0.25rem',
+                                        marginRight: '0.25rem',
+                                    }}
+                                >
+                                    <div
+                                        className="absolute w-full"
+                                        style={{ top: nowY }}
+                                    >
+                                        <div className="relative w-full">
+                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                            <div
+                                                className="absolute top-0 h-[3px] -translate-y-1/2"
+                                                style={{
+                                                    left: `${
+                                                        (days.findIndex(
+                                                            (d) =>
+                                                                fmtLocal(d) ===
+                                                                todayISO
+                                                        ) /
+                                                            5) *
+                                                        100
+                                                    }%`,
+                                                    width: '20%',
+                                                    background: `linear-gradient(to right, transparent 0%, rgba(244,63,94,0.3) 2%, rgb(244,63,94) 8%, rgb(217,70,239) 50%, rgb(236,72,153) 92%, rgba(236,72,153,0.3) 98%, transparent 100%)`,
+                                                    filter: 'drop-shadow(0 0 6px rgba(244,63,94,0.6))',
+                                                }}
+                                            />
+                                            <div
+                                                className="absolute top-0 h-[5px] -translate-y-1/2 opacity-40"
+                                                style={{
+                                                    left: `${
+                                                        (days.findIndex(
+                                                            (d) =>
+                                                                fmtLocal(d) ===
+                                                                todayISO
+                                                        ) /
+                                                            5) *
+                                                        100
+                                                    }%`,
+                                                    width: '20%',
+                                                    background: `linear-gradient(to right, transparent 0%, rgba(244,63,94,0.1) 5%, rgba(244,63,94,0.6) 50%, rgba(244,63,94,0.1) 95%, transparent 100%)`,
+                                                    filter: 'blur(1px)',
+                                                }}
+                                            />
+                                            <div
+                                                className="absolute top-1/2 -translate-y-1/2"
+                                                style={{
+                                                    left: `${
+                                                        (days.findIndex(
+                                                            (d) =>
+                                                                fmtLocal(d) ===
+                                                                todayISO
+                                                        ) /
+                                                            5) *
+                                                        100
+                                                    }%`,
+                                                }}
+                                            >
+                                                <div className="absolute -top-[15px] -translate-x-1/2 whitespace-nowrap">
+                                                    <span
+                                                        className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
+                                                        style={{
+                                                            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                                        }}
+                                                    >
+                                                        {fmtHM(nowMin)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Original sliding container for week navigation */}
                         <div className="flex-1 overflow-hidden relative">
                             {isDragging && (
@@ -2003,86 +2094,8 @@ export default function Timetable({
                                     className="flex gap-x-1 sm:gap-x-3 relative"
                                     style={{ width: 'calc(33.333% - 0.5rem)' }}
                                 >
-                                    {showNowLine && (
-                                        <div
-                                            aria-hidden
-                                            className="pointer-events-none absolute -translate-y-1/2 z-50"
-                                            style={{
-                                                top: nowY,
-                                                left: '0.25rem',
-                                                right: '0.25rem',
-                                            }}
-                                        >
-                                            <div className="relative w-full">
-                                                <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
-                                                <div
-                                                    className="absolute top-0 h-[3px] -translate-y-1/2"
-                                                    style={{
-                                                        left: `${
-                                                            (days.findIndex(
-                                                                (d) =>
-                                                                    fmtLocal(
-                                                                        d
-                                                                    ) ===
-                                                                    todayISO
-                                                            ) /
-                                                                5) *
-                                                            100
-                                                        }%`,
-                                                        width: '20%',
-                                                        background: `linear-gradient(to right, transparent 0%, rgba(244,63,94,0.3) 2%, rgb(244,63,94) 8%, rgb(217,70,239) 50%, rgb(236,72,153) 92%, rgba(236,72,153,0.3) 98%, transparent 100%)`,
-                                                        filter: 'drop-shadow(0 0 6px rgba(244,63,94,0.6))',
-                                                    }}
-                                                />
-                                                <div
-                                                    className="absolute top-0 h-[5px] -translate-y-1/2 opacity-40"
-                                                    style={{
-                                                        left: `${
-                                                            (days.findIndex(
-                                                                (d) =>
-                                                                    fmtLocal(
-                                                                        d
-                                                                    ) ===
-                                                                    todayISO
-                                                            ) /
-                                                                5) *
-                                                            100
-                                                        }%`,
-                                                        width: '20%',
-                                                        background: `linear-gradient(to right, transparent 0%, rgba(244,63,94,0.1) 5%, rgba(244,63,94,0.6) 50%, rgba(244,63,94,0.1) 95%, transparent 100%)`,
-                                                        filter: 'blur(1px)',
-                                                    }}
-                                                />
-                                                <div
-                                                    className="absolute top-1/2 -translate-y-1/2"
-                                                    style={{
-                                                        left: `${
-                                                            (days.findIndex(
-                                                                (d) =>
-                                                                    fmtLocal(
-                                                                        d
-                                                                    ) ===
-                                                                    todayISO
-                                                            ) /
-                                                                5) *
-                                                            100
-                                                        }%`,
-                                                    }}
-                                                >
-                                                    <div className="absolute -top-[15px] -translate-x-1/2 whitespace-nowrap">
-                                                        <span
-                                                            className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
-                                                            style={{
-                                                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
-                                                            }}
-                                                        >
-                                                            {fmtHM(nowMin)}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+                                    {/* Current time line moved to parent container */}
+
                                     {days.map((d) => {
                                         const key = fmtLocal(d);
                                         const items = lessonsByDay[key] || [];
