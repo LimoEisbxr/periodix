@@ -112,6 +112,12 @@ export default function Dashboard({
         displayName: string | null;
     } | null>(null);
     const [selectedClass, setSelectedClass] = useState<ClassInfo | null>(null);
+
+    const isClassViewActive = !!(
+        primaryClass && selectedClass?.id === primaryClass.id
+    );
+    const isHomeViewActive = !selectedClass && !selectedUser;
+
     const abortRef = useRef<AbortController | null>(null);
     const searchBoxRef = useRef<HTMLDivElement | null>(null);
     const [mobileSearchOpen, setMobileSearchOpen] = useState(false); // full-screen popup on mobile
@@ -1600,7 +1606,11 @@ export default function Dashboard({
                                 <div className="hidden sm:flex pb-[2px]">
                                     <button
                                         type="button"
-                                        className="btn-secondary whitespace-nowrap flex items-center gap-2 px-4 py-2 disabled:opacity-60"
+                                        className={`btn-secondary whitespace-nowrap flex items-center gap-2 px-4 py-2 disabled:opacity-60 ${
+                                            isClassViewActive
+                                                ? 'ring-2 ring-sky-500 dark:ring-sky-400 bg-sky-50 dark:bg-slate-800'
+                                                : ''
+                                        }`}
                                         onClick={handleViewMyClass}
                                         disabled={!primaryClass}
                                     >
@@ -1633,7 +1643,11 @@ export default function Dashboard({
                                 </div>
                                 <div className="hidden sm:flex pb-[2px]">
                                     <button
-                                        className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                        className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ${
+                                            isHomeViewActive
+                                                ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400'
+                                                : ''
+                                        }`}
                                         title="My timetable"
                                         aria-label="Load my timetable"
                                         onClick={() => {
@@ -1682,7 +1696,11 @@ export default function Dashboard({
                                 </button>
                                 <button
                                     type="button"
-                                    className="rounded-md p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    className={`rounded-md p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ${
+                                        isClassViewActive
+                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400'
+                                            : 'text-slate-600 dark:text-slate-300'
+                                    }`}
                                     aria-label="View my class timetable"
                                     onClick={() => {
                                         setMobileSearchOpen(false);
@@ -1718,7 +1736,11 @@ export default function Dashboard({
                                 </button>
 
                                 <button
-                                    className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ${
+                                        isHomeViewActive
+                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400'
+                                            : ''
+                                    }`}
                                     title="My timetable"
                                     onClick={() => {
                                         setSelectedUser(null);
