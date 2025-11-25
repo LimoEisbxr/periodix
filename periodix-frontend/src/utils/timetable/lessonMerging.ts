@@ -51,8 +51,11 @@ function deriveLessonSignature(lesson: Lesson) {
 
 function getLessonMergeKey(lesson: Lesson): string {
     const signature = deriveLessonSignature(lesson);
+    const code = lesson.code || '';
     if (signature.identifier) {
-        return `${lesson.date}|id:${signature.identifier}`;
+        // Include code in the key so lessons with different codes (e.g., cancelled vs normal)
+        // are bucketed separately even if they share the same identifier
+        return `${lesson.date}|id:${signature.identifier}|code:${code}`;
     }
     return `${lesson.date}|base:${signature.base}`;
 }
@@ -63,6 +66,13 @@ function getLessonMergeKey(lesson: Lesson): string {
  */
 export function canMergeLessons(lesson1: Lesson, lesson2: Lesson): boolean {
     if (lesson1.date !== lesson2.date) return false;
+
+    // Never merge lessons with different codes (e.g., cancelled vs non-cancelled)
+    // This ensures that when only one lesson of a double lesson is cancelled,
+    // they are kept separate rather than merged together
+    const code1 = lesson1.code || '';
+    const code2 = lesson2.code || '';
+    if (code1 !== code2) return false;
 
     const sig1 = deriveLessonSignature(lesson1);
     const sig2 = deriveLessonSignature(lesson2);
