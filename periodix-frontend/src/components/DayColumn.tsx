@@ -5,7 +5,7 @@ import EllipsisIcon from './EllipsisIcon';
 import type { Lesson, LessonColors, Holiday } from '../types';
 import { fmtHM, untisToMinutes } from '../utils/dates';
 import { clamp } from '../utils/dates';
-import { generateGradient, getDefaultGradient } from '../utils/colors';
+import { generateGradient, getDefaultGradient, gradientToSmoothCss } from '../utils/colors';
 import { extractSubjectType } from '../utils/subjectUtils';
 import { MOBILE_MEDIA_QUERY } from '../utils/responsive';
 import { hasLessonChanges, getRoomDisplayText } from '../utils/lessonChanges';
@@ -1045,8 +1045,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                 left: `${leftPct}%`,
                                 width: `${widthPct}%`,
                                 background: statusOverlay
-                                    ? `${statusOverlay}, linear-gradient(135deg, ${gradient.from}, ${gradient.via}, ${gradient.to})`
-                                    : `linear-gradient(135deg, ${gradient.from}, ${gradient.via}, ${gradient.to})`,
+                                    ? `${statusOverlay}, ${gradientToSmoothCss(gradient)}`
+                                    : gradientToSmoothCss(gradient),
                                 // Larger invisible hit target for touch
                                 paddingTop: isMobile ? 4 : undefined,
                                 paddingBottom: isMobile ? 4 : undefined,

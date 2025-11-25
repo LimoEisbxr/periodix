@@ -1,4 +1,5 @@
 import type { Lesson } from '../../types';
+import { generateGradient, gradientToSmoothCss } from '../colors';
 
 /**
  * Get lesson status information
@@ -100,11 +101,10 @@ export function getLessonColors(
         };
     }
 
-    // Apply gradient offset
+    // Apply gradient offset using smooth gradient generation
     const offset = gradientOffsets[subject] ?? 0.5;
-    const gradientStyle = `linear-gradient(135deg, ${baseColor} ${(
-        offset * 100
-    ).toFixed(1)}%, color-mix(in srgb, ${baseColor} 80%, white) 100%)`;
+    const gradient = generateGradient(baseColor, offset);
+    const gradientStyle = gradientToSmoothCss(gradient);
 
     // Determine text color based on background brightness
     const textColor = isLightColor(baseColor) ? '#1f2937' : 'white'; // gray-800 or white
