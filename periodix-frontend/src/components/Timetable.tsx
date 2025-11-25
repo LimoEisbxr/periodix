@@ -106,8 +106,27 @@ export default function Timetable({
     const [SCALE, setSCALE] = useState<number>(1);
     const [axisWidth, setAxisWidth] = useState<number>(56); // dynamic; shrinks on mobile
     const [estimatedDayWidth, setEstimatedDayWidth] = useState<number>(0);
+    const [estimatedFocusedDayWidth, setEstimatedFocusedDayWidth] =
+        useState<number>(0);
     // Single-day focus mode: when set to an ISO date string (yyyy-mm-dd) only that day is shown full-width
     const [focusedDay, setFocusedDay] = useState<string | null>(null);
+    // Day view animation state
+    const [dayTranslateX, setDayTranslateX] = useState(0);
+    const [isDayAnimating, setIsDayAnimating] = useState(false);
+    const [isDayDragging, setIsDayDragging] = useState(false);
+    const dayAnimationRef = useRef<number | null>(null);
+    const dayTranslateXRef = useRef(0);
+    useEffect(() => {
+        dayTranslateXRef.current = dayTranslateX;
+    }, [dayTranslateX]);
+    const isDayAnimatingRef = useRef(false);
+    const isDayDraggingRef = useRef(false);
+    useEffect(() => {
+        isDayAnimatingRef.current = isDayAnimating;
+    }, [isDayAnimating]);
+    useEffect(() => {
+        isDayDraggingRef.current = isDayDragging;
+    }, [isDayDragging]);
 
     // Developer mode visibility (controlled by env, query param, or persisted localStorage flag)
     const envDevFlag =
@@ -379,6 +398,9 @@ export default function Timetable({
             // Ensure we don't divide by zero or get negative
             const colWidth = Math.max(0, (availableWidth - totalGaps) / 5);
             setEstimatedDayWidth(colWidth);
+
+            // Calculate estimated width for focused day view (full available width)
+            setEstimatedFocusedDayWidth(availableWidth);
         }
         computeScale();
         window.addEventListener('resize', computeScale);
@@ -497,6 +519,11 @@ export default function Timetable({
             setIsPulling(false);
             setPullDistance(0);
 
+            // Reset day view state
+            setDayTranslateX(0);
+            setIsDayAnimating(false);
+            setIsDayDragging(false);
+
             // Reset all touch tracking refs to prevent stale gesture state
             // This fixes the issue where swiping doesn't work after PWA close/reopen
             // because the refs retain old touch values from previous session
@@ -511,6 +538,8 @@ export default function Timetable({
             isAnimatingRef.current = false;
             isPullingRef.current = false;
             pullDistanceRef.current = 0;
+            isDayAnimatingRef.current = false;
+            isDayDraggingRef.current = false;
 
             // Force gesture re-attachment by incrementing the force flag
             // This ensures gesture handlers are properly re-attached after PWA resume
@@ -742,7 +771,14 @@ export default function Timetable({
             const containerWidth = el.getBoundingClientRect().width;
             const newTranslateX = applyRubberBandResistance(dx, containerWidth);
 
-            setTranslateX(newTranslateX);
+            // Check if in day view mode - update dayTranslateX instead of translateX
+            if (focusedDayRef.current) {
+                setDayTranslateX(newTranslateX);
+                setIsDayDragging(true);
+                isDayDraggingRef.current = true;
+            } else {
+                setTranslateX(newTranslateX);
+            }
 
             // Calculate instantaneous velocity for fling
             const now = performance.now();
@@ -763,15 +799,21 @@ export default function Timetable({
             lastMoveTimeRef.current = now;
         };
 
-        const performDayNavigation = (direction: 'prev' | 'next') => {
-            if (isAnimatingRef.current) {
+        const performDayNavigation = (
+            direction: 'prev' | 'next',
+            userVelocityPxPerSec?: number
+        ) => {
+            if (isDayAnimatingRef.current || isAnimatingRef.current) {
+                // Don't interrupt ongoing animations
+                setDayTranslateX(0);
+                setIsDayDragging(false);
                 return;
             }
 
             const currentFocusedDay = focusedDayRef.current;
             if (!currentFocusedDay) {
                 // If not in focused day mode, fallback to week navigation
-                return performNavigation(direction);
+                return performNavigation(direction, userVelocityPxPerSec);
             }
 
             const currentDate = new Date(currentFocusedDay);
@@ -791,28 +833,97 @@ export default function Timetable({
             const needsWeekChange =
                 fmtLocal(currentWeek) !== fmtLocal(targetWeek);
 
-            if (needsWeekChange) {
-                // Navigate to the new week first using the parent's navigation handler
-                const weekDirection =
-                    fmtLocal(targetWeek) > fmtLocal(currentWeek)
-                        ? 'next'
-                        : 'prev';
-                onWeekNavigateRef.current?.(weekDirection);
-                // Set focused day to the target date after a brief delay to let the week change
-                setTimeout(() => {
-                    setFocusedDay(targetDateStr);
-                }, 50);
-            } else {
-                // Stay in the same week, just change the focused day
-                setFocusedDay(targetDateStr);
+            // Start animation
+            setIsDayAnimating(true);
+            isDayAnimatingRef.current = true;
+
+            // Cancel any in-flight animation
+            if (dayAnimationRef.current) {
+                cancelAnimationFrame(dayAnimationRef.current);
+                dayAnimationRef.current = null;
             }
 
+            // Calculate target position (full container width for day view)
+            const containerWidth =
+                el.getBoundingClientRect().width - axisWidthRef.current;
+            const startX = dayTranslateXRef.current;
+            const targetX =
+                direction === 'next' ? -containerWidth : containerWidth;
+            const delta = targetX - startX;
+
+            // Determine duration based on velocity
+            const stride = Math.abs(delta);
+            const DEFAULT_SPEED = 1900;
+            const MIN_DURATION = 180;
+            const MAX_DURATION = 420;
+            const speed = Math.min(
+                6000,
+                Math.max(900, userVelocityPxPerSec || DEFAULT_SPEED)
+            );
+            let duration = (stride / speed) * 1000;
+            if (!isFinite(duration)) duration = 300;
+            duration = Math.min(MAX_DURATION, Math.max(MIN_DURATION, duration));
+            const startTime = performance.now();
+
+            // Smooth ease-out for natural feel
+            const ease = (t: number) => {
+                if (t <= 0) return 0;
+                if (t >= 1) return 1;
+                const u = 1 - t;
+                return 1 - u * u * u;
+            };
+
+            const step = (now: number) => {
+                const t = Math.min(1, (now - startTime) / duration);
+                const eased = ease(t);
+                setDayTranslateX(startX + delta * eased);
+
+                if (t < 1) {
+                    dayAnimationRef.current = requestAnimationFrame(step);
+                } else {
+                    // Animation complete - update the focused day
+                    setDayTranslateX(targetX);
+
+                    requestAnimationFrame(() => {
+                        if (needsWeekChange) {
+                            // Navigate to the new week first
+                            const weekDirection =
+                                fmtLocal(targetWeek) > fmtLocal(currentWeek)
+                                    ? 'next'
+                                    : 'prev';
+                            onWeekNavigateRef.current?.(weekDirection);
+                            // Set focused day after brief delay for week data to update
+                            setTimeout(() => {
+                                setFocusedDay(targetDateStr);
+                                setDayTranslateX(0);
+                                setIsDayAnimating(false);
+                                isDayAnimatingRef.current = false;
+                                setIsDayDragging(false);
+                                isDayDraggingRef.current = false;
+                            }, 50);
+                        } else {
+                            // Same week - just update the focused day
+                            setFocusedDay(targetDateStr);
+                            setDayTranslateX(0);
+                            setIsDayAnimating(false);
+                            isDayAnimatingRef.current = false;
+                            setIsDayDragging(false);
+                            isDayDraggingRef.current = false;
+                        }
+                    });
+                }
+            };
+
+            dayAnimationRef.current = requestAnimationFrame(step);
+
             if (isDebugRef.current) {
-                console.debug('[TT] day navigation', {
+                console.debug('[TT] day navigation animation start', {
                     direction,
                     from: currentFocusedDay,
                     to: targetDateStr,
                     needsWeekChange,
+                    containerWidth,
+                    targetX,
                 });
             }
         };
@@ -1071,33 +1182,34 @@ export default function Timetable({
             );
 
             if (navigation.shouldNavigate && navigation.direction) {
+                // Compute fling velocity using last segment vs touch start for fallback
+                let velocity = flingVelocityRef.current;
+                if (
+                    !velocity &&
+                    lastMoveXRef.current != null &&
+                    lastMoveTimeRef.current != null &&
+                    touchStartX.current != null &&
+                    touchStartTime.current != null
+                ) {
+                    const dtTotal =
+                        (performance.now() - touchStartTime.current) / 1000; // s
+                    const dxTotal = lastMoveXRef.current - touchStartX.current; // px
+                    if (dtTotal > 0) velocity = Math.abs(dxTotal / dtTotal); // px/s
+                }
+
                 // Check if we're in focused day mode
                 if (focusedDayRef.current) {
                     // Use day navigation instead of week navigation
-                    performDayNavigation(navigation.direction);
+                    performDayNavigation(navigation.direction, velocity);
                     if (isDebugRef.current) {
                         console.debug('[TT] day navigation trigger', {
                             direction: navigation.direction,
                             focusedDay: focusedDayRef.current,
+                            velocity,
                         });
                     }
                 } else {
                     // Standard week navigation
-                    // Compute fling velocity using last segment vs touch start for fallback
-                    let velocity = flingVelocityRef.current;
-                    if (
-                        !velocity &&
-                        lastMoveXRef.current != null &&
-                        lastMoveTimeRef.current != null &&
-                        touchStartX.current != null &&
-                        touchStartTime.current != null
-                    ) {
-                        const dtTotal =
-                            (performance.now() - touchStartTime.current) / 1000; // s
-                        const dxTotal =
-                            lastMoveXRef.current - touchStartX.current; // px
-                        if (dtTotal > 0) velocity = Math.abs(dxTotal / dtTotal); // px/s
-                    }
                     performNavigation(navigation.direction, velocity);
                     if (isDebugRef.current) {
                         console.debug('[TT] week navigation trigger', {
@@ -1108,7 +1220,13 @@ export default function Timetable({
                 }
             } else {
                 // Snap back to current position
-                setTranslateX(0);
+                if (focusedDayRef.current) {
+                    setDayTranslateX(0);
+                    setIsDayDragging(false);
+                    isDayDraggingRef.current = false;
+                } else {
+                    setTranslateX(0);
+                }
                 if (isDebugRef.current) {
                     console.debug('[TT] touch gesture cancelled / snap back');
                 }
@@ -1226,13 +1344,14 @@ export default function Timetable({
             // Check if we're in focused day mode
             if (focusedDayRef.current) {
                 // Use day navigation instead of week navigation
-                performDayNavigation(direction);
+                performDayNavigation(direction, gestureSpeed);
                 if (isDebugRef.current) {
                     console.debug('[TT] wheel day navigation trigger', {
                         direction,
                         focusedDay: focusedDayRef.current,
                         absX,
                         absY,
+                        gestureSpeed,
                         samples: recentWheelEvents.length,
                     });
                 }
@@ -1264,6 +1383,11 @@ export default function Timetable({
             isPullingRef.current = false;
             setPullDistance(0);
             pullDistanceRef.current = 0;
+
+            // Also reset day view state
+            setDayTranslateX(0);
+            setIsDayDragging(false);
+            isDayDraggingRef.current = false;
 
             // Reset touch tracking refs to prevent stale gesture state
             touchStartX.current = null;
@@ -1308,6 +1432,7 @@ export default function Timetable({
             const isStaleDrag =
                 isDraggingRef.current && timeSinceLastMove > 5000;
 
+            // Reset week view stuck state
             if (
                 !isAnimatingRef.current &&
                 Math.abs(translateXRef.current) > 2 &&
@@ -1322,6 +1447,25 @@ export default function Timetable({
                 if (isDebugRef.current)
                     console.debug(
                         '[TT] watchdog: corrected non-zero translateX while not animating'
+                    );
+            }
+
+            // Reset day view stuck state
+            const isStaleDayDrag =
+                isDayDraggingRef.current && timeSinceLastMove > 5000;
+            if (
+                !isDayAnimatingRef.current &&
+                Math.abs(dayTranslateXRef.current) > 2 &&
+                (!isDayDraggingRef.current || isStaleDayDrag)
+            ) {
+                setDayTranslateX(0);
+                if (isDayDraggingRef.current) {
+                    setIsDayDragging(false);
+                    isDayDraggingRef.current = false;
+                }
+                if (isDebugRef.current)
+                    console.debug(
+                        '[TT] watchdog: corrected non-zero dayTranslateX while not animating'
                     );
             }
 
@@ -1798,7 +1942,7 @@ export default function Timetable({
             </div>
 
             <div className="overflow-hidden w-full">
-                {/* When focusedDay is active, render simplified single-day layout */}
+                {/* When focusedDay is active, render 3-panel sliding day view */}
                 {focusedDay ? (
                     <div className="flex w-full relative">
                         <div style={{ width: `${axisWidth}px` }}>
@@ -1811,71 +1955,317 @@ export default function Timetable({
                                 internalHeaderPx={internalHeaderPx}
                             />
                         </div>
-                        <div className="flex-1 relative">
-                            {(() => {
-                                const dayObj = days.find(
-                                    (d) => fmtLocal(d) === focusedDay
-                                );
-                                if (!dayObj) return null;
-                                const key = fmtLocal(dayObj);
-                                const items = lessonsByDay[key] || [];
-                                const isToday = key === todayISO;
-                                return (
-                                    <div className="relative">
-                                        {/* Current time line overlay for focused day */}
-                                        {showNowLine && isToday && (
-                                            <div
-                                                aria-hidden
-                                                className="pointer-events-none absolute -translate-y-1/2 z-50 left-0 right-0"
-                                                style={{ top: nowY }}
-                                            >
-                                                <div className="relative w-full">
-                                                    <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
-                                                    <div className="absolute top-0 h-[3px] -translate-y-1/2 left-0 right-0 bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500" />
-                                                    <div className="absolute -top-[15px] left-2">
-                                                        <span
-                                                            className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
-                                                            style={{
-                                                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
-                                                            }}
-                                                        >
-                                                            {fmtHM(nowMin)}
-                                                        </span>
+                        {/* 3-panel sliding track for smooth day navigation */}
+                        <div className="flex-1 overflow-hidden relative">
+                            {isDayDragging && (
+                                <div className="absolute inset-0 bg-black/5 dark:bg-white/5 z-20 pointer-events-none transition-opacity duration-150" />
+                            )}
+                            <div
+                                className="flex"
+                                style={{
+                                    transform: `translateX(calc(-33.333% + ${dayTranslateX}px))`,
+                                    width: '300%',
+                                    transition: 'none',
+                                }}
+                            >
+                                {/* Previous Day Panel */}
+                                <div
+                                    className="relative"
+                                    style={{ width: 'calc(33.333%)' }}
+                                >
+                                    {(() => {
+                                        const currentDayDate = new Date(
+                                            focusedDay
+                                        );
+                                        const prevDayDate =
+                                            getPreviousWorkday(currentDayDate);
+                                        const prevDayStr =
+                                            fmtLocal(prevDayDate);
+                                        const prevDayWeek =
+                                            startOfWeek(prevDayDate);
+                                        const currentWeek =
+                                            startOfWeek(weekStart);
+                                        const isSameWeek =
+                                            fmtLocal(prevDayWeek) ===
+                                            fmtLocal(currentWeek);
+
+                                        // Get lessons from appropriate week data
+                                        let items: Lesson[] = [];
+                                        if (isSameWeek) {
+                                            items =
+                                                lessonsByDay[prevDayStr] || [];
+                                        } else {
+                                            items =
+                                                prevWeekLessonsByDay[
+                                                    prevDayStr
+                                                ] || [];
+                                        }
+
+                                        const isToday = prevDayStr === todayISO;
+                                        return (
+                                            <div className="relative h-full">
+                                                {/* Current time line for prev day if it's today */}
+                                                {showNowLine && isToday && (
+                                                    <div
+                                                        aria-hidden
+                                                        className="pointer-events-none absolute -translate-y-1/2 z-50 left-0 right-0"
+                                                        style={{ top: nowY }}
+                                                    >
+                                                        <div className="relative w-full">
+                                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                                            <div className="absolute top-0 h-[3px] -translate-y-1/2 left-0 right-0 bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500" />
+                                                            <div className="absolute -top-[15px] left-2">
+                                                                <span
+                                                                    className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
+                                                                    style={{
+                                                                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                                                    }}
+                                                                >
+                                                                    {fmtHM(
+                                                                        nowMin
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
+                                                <DayColumn
+                                                    day={prevDayDate}
+                                                    keyStr={prevDayStr}
+                                                    items={items}
+                                                    holidays={holidays}
+                                                    START_MIN={START_MIN}
+                                                    END_MIN={END_MIN}
+                                                    SCALE={SCALE}
+                                                    DAY_HEADER_PX={
+                                                        DAY_HEADER_PX
+                                                    }
+                                                    BOTTOM_PAD_PX={
+                                                        BOTTOM_PAD_PX
+                                                    }
+                                                    lessonColors={lessonColors}
+                                                    defaultLessonColors={
+                                                        defaultLessonColors
+                                                    }
+                                                    onLessonClick={
+                                                        handleLessonClick
+                                                    }
+                                                    isToday={isToday}
+                                                    gradientOffsets={
+                                                        gradientOffsets
+                                                    }
+                                                    hideHeader
+                                                    isDeveloperMode={
+                                                        isDeveloperMode
+                                                    }
+                                                    isClassTimetable={
+                                                        isClassView
+                                                    }
+                                                    estimatedWidth={
+                                                        estimatedFocusedDayWidth
+                                                    }
+                                                />
                                             </div>
-                                        )}
-                                        <DayColumn
-                                            day={dayObj}
-                                            keyStr={key}
-                                            items={items}
-                                            holidays={holidays}
-                                            START_MIN={START_MIN}
-                                            END_MIN={END_MIN}
-                                            SCALE={SCALE}
-                                            DAY_HEADER_PX={DAY_HEADER_PX}
-                                            BOTTOM_PAD_PX={BOTTOM_PAD_PX}
-                                            lessonColors={lessonColors}
-                                            defaultLessonColors={
-                                                defaultLessonColors
-                                            }
-                                            onLessonClick={handleLessonClick}
-                                            isToday={isToday}
-                                            gradientOffsets={gradientOffsets}
-                                            hideHeader
-                                            isDeveloperMode={isDeveloperMode}
-                                            isClassTimetable={isClassView}
-                                        />
-                                        {!items.length && (
-                                            <div className="absolute inset-0 flex items-center justify-center z-40">
-                                                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
-                                                    No lessons for this day.
-                                                </div>
+                                        );
+                                    })()}
+                                </div>
+
+                                {/* Current Day Panel */}
+                                <div
+                                    className="relative"
+                                    style={{ width: 'calc(33.333%)' }}
+                                >
+                                    {(() => {
+                                        const dayObj =
+                                            days.find(
+                                                (d) =>
+                                                    fmtLocal(d) === focusedDay
+                                            ) || new Date(focusedDay);
+                                        const key = fmtLocal(dayObj);
+                                        const items = lessonsByDay[key] || [];
+                                        const isToday = key === todayISO;
+                                        return (
+                                            <div className="relative h-full">
+                                                {/* Current time line overlay for focused day */}
+                                                {showNowLine && isToday && (
+                                                    <div
+                                                        aria-hidden
+                                                        className="pointer-events-none absolute -translate-y-1/2 z-50 left-0 right-0"
+                                                        style={{ top: nowY }}
+                                                    >
+                                                        <div className="relative w-full">
+                                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                                            <div className="absolute top-0 h-[3px] -translate-y-1/2 left-0 right-0 bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500" />
+                                                            <div className="absolute -top-[15px] left-2">
+                                                                <span
+                                                                    className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
+                                                                    style={{
+                                                                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                                                    }}
+                                                                >
+                                                                    {fmtHM(
+                                                                        nowMin
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <DayColumn
+                                                    day={
+                                                        dayObj instanceof Date
+                                                            ? dayObj
+                                                            : new Date(dayObj)
+                                                    }
+                                                    keyStr={key}
+                                                    items={items}
+                                                    holidays={holidays}
+                                                    START_MIN={START_MIN}
+                                                    END_MIN={END_MIN}
+                                                    SCALE={SCALE}
+                                                    DAY_HEADER_PX={
+                                                        DAY_HEADER_PX
+                                                    }
+                                                    BOTTOM_PAD_PX={
+                                                        BOTTOM_PAD_PX
+                                                    }
+                                                    lessonColors={lessonColors}
+                                                    defaultLessonColors={
+                                                        defaultLessonColors
+                                                    }
+                                                    onLessonClick={
+                                                        handleLessonClick
+                                                    }
+                                                    isToday={isToday}
+                                                    gradientOffsets={
+                                                        gradientOffsets
+                                                    }
+                                                    hideHeader
+                                                    isDeveloperMode={
+                                                        isDeveloperMode
+                                                    }
+                                                    isClassTimetable={
+                                                        isClassView
+                                                    }
+                                                    estimatedWidth={
+                                                        estimatedFocusedDayWidth
+                                                    }
+                                                />
+                                                {!items.length && (
+                                                    <div className="absolute inset-0 flex items-center justify-center z-40">
+                                                        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center text-slate-600 dark:text-slate-300 shadow-lg">
+                                                            No lessons for this
+                                                            day.
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })()}
+                                        );
+                                    })()}
+                                </div>
+
+                                {/* Next Day Panel */}
+                                <div
+                                    className="relative"
+                                    style={{ width: 'calc(33.333%)' }}
+                                >
+                                    {(() => {
+                                        const currentDayDate = new Date(
+                                            focusedDay
+                                        );
+                                        const nextDayDate =
+                                            getNextWorkday(currentDayDate);
+                                        const nextDayStr =
+                                            fmtLocal(nextDayDate);
+                                        const nextDayWeek =
+                                            startOfWeek(nextDayDate);
+                                        const currentWeek =
+                                            startOfWeek(weekStart);
+                                        const isSameWeek =
+                                            fmtLocal(nextDayWeek) ===
+                                            fmtLocal(currentWeek);
+
+                                        // Get lessons from appropriate week data
+                                        let items: Lesson[] = [];
+                                        if (isSameWeek) {
+                                            items =
+                                                lessonsByDay[nextDayStr] || [];
+                                        } else {
+                                            items =
+                                                nextWeekLessonsByDay[
+                                                    nextDayStr
+                                                ] || [];
+                                        }
+
+                                        const isToday = nextDayStr === todayISO;
+                                        return (
+                                            <div className="relative h-full">
+                                                {/* Current time line for next day if it's today */}
+                                                {showNowLine && isToday && (
+                                                    <div
+                                                        aria-hidden
+                                                        className="pointer-events-none absolute -translate-y-1/2 z-50 left-0 right-0"
+                                                        style={{ top: nowY }}
+                                                    >
+                                                        <div className="relative w-full">
+                                                            <div className="h-[1px] w-full bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500 shadow-[0_0_4px_rgba(244,63,94,0.4)] -translate-y-1/2" />
+                                                            <div className="absolute top-0 h-[3px] -translate-y-1/2 left-0 right-0 bg-gradient-to-r from-rose-500 via-fuchsia-500 to-pink-500" />
+                                                            <div className="absolute -top-[15px] left-2">
+                                                                <span
+                                                                    className="rounded-full bg-rose-500/95 px-1 py-[1px] text-[10px] font-semibold text-white shadow-lg"
+                                                                    style={{
+                                                                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                                                    }}
+                                                                >
+                                                                    {fmtHM(
+                                                                        nowMin
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <DayColumn
+                                                    day={nextDayDate}
+                                                    keyStr={nextDayStr}
+                                                    items={items}
+                                                    holidays={holidays}
+                                                    START_MIN={START_MIN}
+                                                    END_MIN={END_MIN}
+                                                    SCALE={SCALE}
+                                                    DAY_HEADER_PX={
+                                                        DAY_HEADER_PX
+                                                    }
+                                                    BOTTOM_PAD_PX={
+                                                        BOTTOM_PAD_PX
+                                                    }
+                                                    lessonColors={lessonColors}
+                                                    defaultLessonColors={
+                                                        defaultLessonColors
+                                                    }
+                                                    onLessonClick={
+                                                        handleLessonClick
+                                                    }
+                                                    isToday={isToday}
+                                                    gradientOffsets={
+                                                        gradientOffsets
+                                                    }
+                                                    hideHeader
+                                                    isDeveloperMode={
+                                                        isDeveloperMode
+                                                    }
+                                                    isClassTimetable={
+                                                        isClassView
+                                                    }
+                                                    estimatedWidth={
+                                                        estimatedFocusedDayWidth
+                                                    }
+                                                />
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 ) : (
