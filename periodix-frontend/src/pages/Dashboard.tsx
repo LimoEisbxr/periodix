@@ -23,7 +23,6 @@ import {
     getHolidays,
     getUserClasses,
     getClassTimetable,
-    searchClasses,
     getAbsentLessons,
     type ClassInfo,
 } from '../api';
@@ -54,9 +53,12 @@ import type {
 } from '../types';
 import { getAbsencePresetRange } from '../utils/absencePresets';
 
-type SearchResult =
-    | { type: 'user'; id: string; username: string; displayName: string | null }
-    | { type: 'class'; id: number; name: string; longName: string };
+type SearchResult = {
+    type: 'user';
+    id: string;
+    username: string;
+    displayName: string | null;
+};
 
 type FallbackNoticeState = {
     reason: TimetableFallbackReason | 'UNKNOWN';
@@ -117,10 +119,13 @@ export default function Dashboard({
         primaryClass && selectedClass?.id === primaryClass.id
     );
     const isHomeViewActive = !selectedClass && !selectedUser;
+    const isSearchViewActive = !!selectedUser && selectedUser.id !== user.id;
 
     const abortRef = useRef<AbortController | null>(null);
     const searchBoxRef = useRef<HTMLDivElement | null>(null);
     const [mobileSearchOpen, setMobileSearchOpen] = useState(false); // full-screen popup on mobile
+    const [isMenuOpen, setIsMenuOpen] = useState(false); // hamburger menu state
+    const menuRef = useRef<HTMLDivElement | null>(null);
 
     // Auto-focus mobile search input when overlay opens
     useEffect(() => {
@@ -653,7 +658,7 @@ export default function Dashboard({
 
         setSelectedClass(primaryClass);
         setSelectedUser(null);
-        setQueryText(primaryClass.name);
+        setQueryText('');
         setResults([]);
         setMobileSearchOpen(false);
     }, [primaryClass, selectedClass]);
@@ -1073,15 +1078,15 @@ export default function Dashboard({
                 // Track search activity
                 trackActivity(token, 'search', {
                     query: currentQuery,
-                    mode: 'unified',
+                    mode: 'students',
                 }).catch(console.error);
 
                 const base = API_BASE
                     ? String(API_BASE).replace(/\/$/, '')
                     : '';
 
-                // Fetch users
-                const usersPromise = fetch(
+                // Fetch users (students only - search is restricted to user's class on backend)
+                const usersResponse = await fetch(
                     `${base}/api/users/search?q=${encodeURIComponent(
                         currentQuery
                     )}`,
@@ -1089,22 +1094,15 @@ export default function Dashboard({
                         headers: { Authorization: `Bearer ${token}` },
                         signal: ac.signal,
                     }
-                ).then((res) => (res.ok ? res.json() : { users: [] }));
-
-                // Fetch classes
-                const classesPromise = searchClasses(token, currentQuery).catch(
-                    () => ({ classes: [] })
                 );
-
-                const [usersData, classesData] = await Promise.all([
-                    usersPromise,
-                    classesPromise,
-                ]);
+                const usersData = usersResponse.ok
+                    ? await usersResponse.json()
+                    : { users: [] };
 
                 if (cancelled) return;
                 if (queryText.trim() !== currentQuery) return; // stale
 
-                const users = (
+                const users: SearchResult[] = (
                     Array.isArray(usersData.users) ? usersData.users : []
                 ).map((u: unknown) => ({
                     ...(u as {
@@ -1115,21 +1113,8 @@ export default function Dashboard({
                     type: 'user' as const,
                 }));
 
-                const classesList =
-                    classesData &&
-                    'classes' in classesData &&
-                    Array.isArray(classesData.classes)
-                        ? classesData.classes
-                        : [];
-
-                const classes = classesList.map((c: ClassInfo) => ({
-                    ...c,
-                    type: 'class' as const,
-                }));
-
-                const combined = [...users, ...classes];
-                setResults(combined);
-                lastResultsRef.current = combined;
+                setResults(users);
+                lastResultsRef.current = users;
             } catch (e: unknown) {
                 if (
                     e &&
@@ -1195,6 +1180,7 @@ export default function Dashboard({
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 if (results.length) setResults([]);
+                if (isMenuOpen) setIsMenuOpen(false);
             }
         };
         document.addEventListener('mousedown', handlePointer);
@@ -1205,7 +1191,26 @@ export default function Dashboard({
             document.removeEventListener('touchstart', handlePointer);
             document.removeEventListener('keydown', handleKey);
         };
-    }, [results.length, mobileSearchOpen]);
+    }, [results.length, mobileSearchOpen, isMenuOpen]);
+
+    // Close hamburger menu on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+            const node = menuRef.current;
+            if (!node) return;
+            if (!node.contains(e.target as Node)) {
+                setIsMenuOpen(false);
+            }
+        };
+        if (isMenuOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+            document.addEventListener('touchstart', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('touchstart', handleClickOutside);
+        };
+    }, [isMenuOpen]);
 
     const handleWeekNavigate = useCallback(
         (dir: 'prev' | 'next') => {
@@ -1276,7 +1281,7 @@ export default function Dashboard({
 
     return (
         <div className={'min-h-screen'}>
-            <header className="header-blur">
+            <header className="header-blur sticky top-0 z-[200]">
                 <div className="mx-auto flex max-w-screen-2xl items-center justify-between p-4">
                     <div className="logo-text text-xl sm:text-2xl">
                         Periodix
@@ -1285,124 +1290,187 @@ export default function Dashboard({
                         <div className="hidden sm:block text-sm text-slate-600 dark:text-slate-300 mr-4">
                             {user.displayName || user.username}
                         </div>
-                        <button
-                            className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 mr-1"
-                            title="View absences"
-                            onClick={() => setIsAbsencePanelOpen(true)}
-                            aria-label="View absences"
-                        >
-                            <svg
-                                className="h-5 w-5 text-slate-600 dark:text-slate-300"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                            >
-                                <rect
-                                    x="3"
-                                    y="4"
-                                    width="18"
-                                    height="16"
-                                    rx="2"
-                                />
-                                <path d="M3 9h18" />
-                                <path d="M8 2v4" />
-                                <path d="M16 2v4" />
-                                <path d="M8 14h8" />
-                            </svg>
-                        </button>
                         <NotificationBell
                             notifications={notifications}
-                            onClick={() => setIsNotificationPanelOpen(true)}
+                            onClick={() =>
+                                setIsNotificationPanelOpen(
+                                    !isNotificationPanelOpen
+                                )
+                            }
                             className="mr-1"
                             isOpen={isNotificationPanelOpen}
                         />
-                        <button
-                            className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700"
-                            title="Settings"
-                            onClick={() => {
-                                setIsSettingsModalOpen(true);
-                                trackActivity(token, 'settings').catch(
-                                    console.error
-                                );
-                            }}
-                            aria-label="Settings"
-                        >
-                            <svg
-                                width="20"
-                                height="20"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                className="text-slate-600 dark:text-slate-300"
+                        {/* Hamburger menu */}
+                        <div className="relative z-[100]" ref={menuRef}>
+                            <button
+                                className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ${
+                                    isMenuOpen
+                                        ? 'bg-slate-200 dark:bg-slate-700'
+                                        : ''
+                                }`}
+                                title="Menu"
+                                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                                aria-label="Open menu"
+                                aria-expanded={isMenuOpen}
                             >
-                                <path
-                                    d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                />
-                                <circle
-                                    cx="12"
-                                    cy="12"
-                                    r="3"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                />
-                            </svg>
-                        </button>
-                        <button
-                            className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ml-1"
-                            title="Toggle dark mode"
-                            onClick={() => setDark(!dark)}
-                            aria-label="Toggle dark mode"
-                        >
-                            {dark ? (
                                 <svg
-                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="h-5 w-5 text-slate-600 dark:text-slate-300 transition-transform duration-200"
+                                    style={{
+                                        transform: isMenuOpen
+                                            ? 'rotate(90deg)'
+                                            : 'rotate(0deg)',
+                                    }}
                                     viewBox="0 0 24 24"
-                                    fill="currentColor"
-                                    className="h-5 w-5 text-white"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
                                 >
-                                    <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z" />
-                                    <path
-                                        fillRule="evenodd"
-                                        d="M12 2.25a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75Zm0 16.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V19.5a.75.75 0 0 1 .75-.75Zm9-6a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5H20.25a.75.75 0 0 1 .75.75Zm-16.5 0a.75.75 0 0 1-.75.75H2.25a.75.75 0 0 1 0-1.5H3.75a.75.75 0 0 1 .75.75ZM18.53 5.47a.75.75 0 0 1 0 1.06l-1.06 1.06a.75.75 0 0 1-1.061-1.06l1.06-1.06a.75.75 0 0 1 1.06 0ZM7.59 16.41a.75.75 0 0 1 0 1.061L6.53 18.53a.75.75 0 1 1-1.06-1.061l1.06-1.06a.75.75 0 0 1 1.06 0ZM18.53 18.53a.75.75 0 0 1-1.06 0l-1.06-1.06a.75.75 0 0 1 1.06-1.061l1.06 1.06c.293.293.293.768 0 1.061ZM7.59 7.59A.75.75 0 0 1 6.53 6.53L5.47 5.47a.75.75 0 1 1 1.06-1.06l1.06 1.06c.293.293.293.768 0 1.061Z"
-                                        clipRule="evenodd"
-                                    />
+                                    <line x1="3" y1="6" x2="21" y2="6" />
+                                    <line x1="3" y1="12" x2="21" y2="12" />
+                                    <line x1="3" y1="18" x2="21" y2="18" />
                                 </svg>
-                            ) : (
-                                <MoonIcon />
-                            )}
-                        </button>
-                        <button
-                            className="rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ml-1"
-                            onClick={onLogout}
-                            title="Log out"
-                            aria-label="Log out"
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                className="h-5 w-5 text-slate-600 dark:text-slate-300"
+                            </button>
+                            {/* Dropdown menu */}
+                            <div
+                                className={`absolute right-0 mt-2 w-48 rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 overflow-hidden transition-all duration-200 ease-out origin-top-right z-50 ${
+                                    isMenuOpen
+                                        ? 'opacity-100 scale-100 translate-y-0'
+                                        : 'opacity-0 scale-95 -translate-y-2 pointer-events-none'
+                                }`}
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"
-                                />
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M10 17l5-5-5-5M15 12H3"
-                                />
-                            </svg>
-                        </button>
+                                <div className="py-1">
+                                    {/* Settings */}
+                                    <button
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                        onClick={() => {
+                                            setIsMenuOpen(false);
+                                            setIsSettingsModalOpen(true);
+                                            trackActivity(
+                                                token,
+                                                'settings'
+                                            ).catch(console.error);
+                                        }}
+                                    >
+                                        <svg
+                                            width="18"
+                                            height="18"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            className="text-slate-500 dark:text-slate-400"
+                                        >
+                                            <path
+                                                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            />
+                                            <circle
+                                                cx="12"
+                                                cy="12"
+                                                r="3"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                            />
+                                        </svg>
+                                        Settings
+                                    </button>
+                                    {/* Absences */}
+                                    <button
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                        onClick={() => {
+                                            setIsMenuOpen(false);
+                                            setIsAbsencePanelOpen(
+                                                !isAbsencePanelOpen
+                                            );
+                                        }}
+                                    >
+                                        <svg
+                                            width="18"
+                                            height="18"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="1.8"
+                                            className="text-slate-500 dark:text-slate-400"
+                                        >
+                                            <rect
+                                                x="3"
+                                                y="4"
+                                                width="18"
+                                                height="16"
+                                                rx="2"
+                                            />
+                                            <path d="M3 9h18" />
+                                            <path d="M8 2v4" />
+                                            <path d="M16 2v4" />
+                                            <path d="M8 14h8" />
+                                        </svg>
+                                        Absences
+                                    </button>
+                                    {/* Dark mode toggle */}
+                                    <button
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                        onClick={() => {
+                                            setDark(!dark);
+                                            setIsMenuOpen(false);
+                                        }}
+                                    >
+                                        {dark ? (
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                viewBox="0 0 24 24"
+                                                fill="currentColor"
+                                                className="h-[18px] w-[18px] text-amber-500"
+                                            >
+                                                <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z" />
+                                                <path
+                                                    fillRule="evenodd"
+                                                    d="M12 2.25a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75Zm0 16.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V19.5a.75.75 0 0 1 .75-.75Zm9-6a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5H20.25a.75.75 0 0 1 .75.75Zm-16.5 0a.75.75 0 0 1-.75.75H2.25a.75.75 0 0 1 0-1.5H3.75a.75.75 0 0 1 .75.75ZM18.53 5.47a.75.75 0 0 1 0 1.06l-1.06 1.06a.75.75 0 0 1-1.061-1.06l1.06-1.06a.75.75 0 0 1 1.06 0ZM7.59 16.41a.75.75 0 0 1 0 1.061L6.53 18.53a.75.75 0 1 1-1.06-1.061l1.06-1.06a.75.75 0 0 1 1.06 0ZM18.53 18.53a.75.75 0 0 1-1.06 0l-1.06-1.06a.75.75 0 0 1 1.06-1.061l1.06 1.06c.293.293.293.768 0 1.061ZM7.59 7.59A.75.75 0 0 1 6.53 6.53L5.47 5.47a.75.75 0 1 1 1.06-1.06l1.06 1.06c.293.293.293.768 0 1.061Z"
+                                                    clipRule="evenodd"
+                                                />
+                                            </svg>
+                                        ) : (
+                                            <MoonIcon className="h-[18px] w-[18px] text-indigo-500" />
+                                        )}
+                                        {dark ? 'Light mode' : 'Dark mode'}
+                                    </button>
+                                    {/* Divider */}
+                                    <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+                                    {/* Logout */}
+                                    <button
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                        onClick={() => {
+                                            setIsMenuOpen(false);
+                                            onLogout();
+                                        }}
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            className="h-[18px] w-[18px]"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"
+                                            />
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M10 17l5-5-5-5M15 12H3"
+                                            />
+                                        </svg>
+                                        Log out
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </header>
@@ -1453,16 +1521,26 @@ export default function Dashboard({
                         <div className="flex flex-wrap items-end gap-3">
                             {/* Desktop search */}
                             <div
-                                className="hidden sm:flex items-end gap-3 flex-1 max-w-2xl"
+                                className="hidden sm:flex items-end gap-3 max-w-xs"
                                 ref={searchBoxRef}
                             >
                                 <div className="flex-1">
-                                    <label className="label sm:text-sm text-[11px]">
-                                        Search
-                                    </label>
                                     <div className="relative">
+                                        <svg
+                                            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none z-10"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        >
+                                            <circle cx="11" cy="11" r="8" />
+                                            <path d="m21 21-4.35-4.35" />
+                                        </svg>
                                         <input
                                             className="input text-sm pr-8"
+                                            style={{ paddingLeft: '2.5rem' }}
                                             placeholder="Search students..."
                                             value={queryText}
                                             onChange={(e) =>
@@ -1516,73 +1594,38 @@ export default function Dashboard({
                                                             <button
                                                                 className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                                                                 onClick={() => {
+                                                                    setSelectedUser(
+                                                                        r
+                                                                    );
+                                                                    setSelectedClass(
+                                                                        null
+                                                                    );
+                                                                    setQueryText(
+                                                                        r.displayName ||
+                                                                            r.username
+                                                                    );
+                                                                    setResults(
+                                                                        []
+                                                                    );
                                                                     if (
-                                                                        r.type ===
-                                                                        'user'
-                                                                    ) {
-                                                                        setSelectedUser(
-                                                                            r
-                                                                        );
-                                                                        setSelectedClass(
-                                                                            null
-                                                                        );
-                                                                        setQueryText(
-                                                                            r.displayName ||
-                                                                                r.username
-                                                                        );
-                                                                        setResults(
-                                                                            []
-                                                                        );
-                                                                        if (
-                                                                            r.id !==
-                                                                            user.id
-                                                                        )
-                                                                            loadUser(
-                                                                                r.id
-                                                                            );
-                                                                        else
-                                                                            loadMine();
-                                                                    } else {
-                                                                        setSelectedClass(
-                                                                            {
-                                                                                id: r.id,
-                                                                                name: r.name,
-                                                                                longName:
-                                                                                    r.longName,
-                                                                            }
-                                                                        );
-                                                                        setSelectedUser(
-                                                                            null
-                                                                        );
-                                                                        setQueryText(
-                                                                            r.name
-                                                                        );
-                                                                        setResults(
-                                                                            []
-                                                                        );
-                                                                        loadClass(
+                                                                        r.id !==
+                                                                        user.id
+                                                                    )
+                                                                        loadUser(
                                                                             r.id
                                                                         );
-                                                                    }
+                                                                    else
+                                                                        loadMine();
                                                                 }}
                                                             >
                                                                 <div className="font-medium">
-                                                                    {r.type ===
-                                                                    'user'
-                                                                        ? r.displayName ||
-                                                                          r.username
-                                                                        : r.name}
+                                                                    {r.displayName ||
+                                                                        r.username}
                                                                 </div>
                                                                 <div className="text-xs text-slate-500">
-                                                                    {r.type ===
-                                                                    'user'
-                                                                        ? r.displayName
-                                                                            ? r.username
-                                                                            : 'Student'
-                                                                        : r.longName !==
-                                                                          r.name
-                                                                        ? r.longName
-                                                                        : 'Class'}
+                                                                    {r.displayName
+                                                                        ? r.username
+                                                                        : 'Student'}
                                                                 </div>
                                                             </button>
                                                         </li>
@@ -1606,47 +1649,39 @@ export default function Dashboard({
                                 <div className="hidden sm:flex pb-[2px]">
                                     <button
                                         type="button"
-                                        className={`btn-secondary whitespace-nowrap flex items-center gap-2 px-4 py-2 disabled:opacity-60 ${
+                                        className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-60 transition-all ${
                                             isClassViewActive
-                                                ? 'ring-2 ring-sky-500 dark:ring-sky-400 bg-sky-50 dark:bg-slate-800'
-                                                : ''
+                                                ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
+                                                : 'text-slate-600 dark:text-slate-300'
                                         }`}
                                         onClick={handleViewMyClass}
                                         disabled={!primaryClass}
+                                        title="Class timetable"
+                                        aria-label="View my class timetable"
                                     >
                                         <svg
-                                            width="16"
-                                            height="16"
+                                            width="20"
+                                            height="20"
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             stroke="currentColor"
                                             strokeWidth="1.8"
-                                            className="h-4 w-4"
+                                            className="h-5 w-5"
                                         >
-                                            <rect
-                                                x="3"
-                                                y="4"
-                                                width="18"
-                                                height="6"
-                                                rx="1.5"
-                                            />
-                                            <rect
-                                                x="3"
-                                                y="14"
-                                                width="18"
-                                                height="6"
-                                                rx="1.5"
-                                            />
+                                            {/* Group of people icon for class timetable */}
+                                            <circle cx="9" cy="7" r="3" />
+                                            <circle cx="17" cy="7" r="2" />
+                                            <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+                                            <path d="M21 21v-1.5a3 3 0 0 0-3-3h-1" />
                                         </svg>
-                                        Class timetable
                                     </button>
                                 </div>
                                 <div className="hidden sm:flex pb-[2px]">
                                     <button
-                                        className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ${
+                                        className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
                                             isHomeViewActive
-                                                ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400'
-                                                : ''
+                                                ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
+                                                : 'text-slate-600 dark:text-slate-300'
                                         }`}
                                         title="My timetable"
                                         aria-label="Load my timetable"
@@ -1663,7 +1698,7 @@ export default function Dashboard({
                                             fill="none"
                                             stroke="currentColor"
                                             strokeWidth="1.8"
-                                            className="h-5 w-5 text-slate-900 dark:text-white"
+                                            className="h-5 w-5"
                                         >
                                             <path d="M3 10.5 12 3l9 7.5" />
                                             <path d="M5 10v10h14V10" />
@@ -1676,7 +1711,11 @@ export default function Dashboard({
                             <div className="flex items-end gap-2 sm:hidden">
                                 <button
                                     type="button"
-                                    className="rounded-md p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    className={`rounded-md p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
+                                        isSearchViewActive
+                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
+                                            : 'text-slate-600 dark:text-slate-300'
+                                    }`}
                                     aria-label="Open search"
                                     onClick={() => setMobileSearchOpen(true)}
                                 >
@@ -1696,9 +1735,9 @@ export default function Dashboard({
                                 </button>
                                 <button
                                     type="button"
-                                    className={`rounded-md p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ${
+                                    className={`rounded-md p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
                                         isClassViewActive
-                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400'
+                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
                                             : 'text-slate-600 dark:text-slate-300'
                                     }`}
                                     aria-label="View my class timetable"
@@ -1718,28 +1757,19 @@ export default function Dashboard({
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
                                     >
-                                        <rect
-                                            x="4"
-                                            y="5"
-                                            width="16"
-                                            height="6"
-                                            rx="2"
-                                        />
-                                        <rect
-                                            x="4"
-                                            y="13"
-                                            width="16"
-                                            height="6"
-                                            rx="2"
-                                        />
+                                        {/* Group of people icon for class timetable */}
+                                        <circle cx="9" cy="7" r="3" />
+                                        <circle cx="17" cy="7" r="2" />
+                                        <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+                                        <path d="M21 21v-1.5a3 3 0 0 0-3-3h-1" />
                                     </svg>
                                 </button>
 
                                 <button
-                                    className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 ${
+                                    className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
                                         isHomeViewActive
-                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400'
-                                            : ''
+                                            ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
+                                            : 'text-slate-600 dark:text-slate-300'
                                     }`}
                                     title="My timetable"
                                     onClick={() => {
@@ -1756,7 +1786,7 @@ export default function Dashboard({
                                         fill="none"
                                         stroke="currentColor"
                                         strokeWidth="1.8"
-                                        className="h-5 w-5 text-slate-900 dark:text-white"
+                                        className="h-5 w-5"
                                     >
                                         <path d="M3 10.5 12 3l9 7.5" />
                                         <path d="M5 10v10h14V10" />
@@ -2124,72 +2154,34 @@ export default function Dashboard({
                                             <button
                                                 className="w-full rounded-xl p-4 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all duration-200 shadow-sm hover:shadow-md group"
                                                 onClick={() => {
-                                                    if (r.type === 'user') {
-                                                        setSelectedUser(r);
-                                                        setSelectedClass(null);
-                                                        setQueryText('');
-                                                        setResults([]);
-                                                        setMobileSearchOpen(
-                                                            false
-                                                        );
-                                                        if (r.id !== user.id)
-                                                            loadUser(r.id);
-                                                        else loadMine();
-                                                    } else {
-                                                        setSelectedClass({
-                                                            id: r.id,
-                                                            name: r.name,
-                                                            longName:
-                                                                r.longName,
-                                                        });
-                                                        setSelectedUser(null);
-                                                        setQueryText('');
-                                                        setResults([]);
-                                                        setMobileSearchOpen(
-                                                            false
-                                                        );
-                                                        loadClass(r.id);
-                                                    }
+                                                    setSelectedUser(r);
+                                                    setSelectedClass(null);
+                                                    setQueryText('');
+                                                    setResults([]);
+                                                    setMobileSearchOpen(false);
+                                                    if (r.id !== user.id)
+                                                        loadUser(r.id);
+                                                    else loadMine();
                                                 }}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div
-                                                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md ${
-                                                            r.type === 'user'
-                                                                ? 'bg-gradient-to-br from-sky-500 to-indigo-600'
-                                                                : 'bg-gradient-to-br from-emerald-500 to-teal-600'
-                                                        }`}
-                                                    >
-                                                        {r.type === 'user'
-                                                            ? (
-                                                                  r.displayName ||
-                                                                  r.username
-                                                              )
-                                                                  .charAt(0)
-                                                                  .toUpperCase()
-                                                            : r.name
-                                                                  .substring(
-                                                                      0,
-                                                                      2
-                                                                  )
-                                                                  .toUpperCase()}
+                                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md bg-gradient-to-br from-sky-500 to-indigo-600">
+                                                        {(
+                                                            r.displayName ||
+                                                            r.username
+                                                        )
+                                                            .charAt(0)
+                                                            .toUpperCase()}
                                                     </div>
                                                     <div className="flex-1">
                                                         <div className="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
-                                                            {r.type === 'user'
-                                                                ? r.displayName ||
-                                                                  r.username
-                                                                : r.name}
+                                                            {r.displayName ||
+                                                                r.username}
                                                         </div>
                                                         <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                                                            {r.type === 'user'
-                                                                ? r.displayName
-                                                                    ? `@${r.username}`
-                                                                    : 'Student'
-                                                                : r.longName !==
-                                                                  r.name
-                                                                ? r.longName
-                                                                : 'Class'}
+                                                            {r.displayName
+                                                                ? `@${r.username}`
+                                                                : 'Student'}
                                                         </div>
                                                     </div>
                                                 </div>

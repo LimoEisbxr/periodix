@@ -134,7 +134,7 @@ export function generateGradient(
 export function gradientToTailwindClasses(gradient: ColorGradient): string {
     // Since we can't use arbitrary values directly in Tailwind classes in this context,
     // we'll return a style object instead that can be applied via CSS-in-JS
-    return `linear-gradient(to right, ${gradient.from}, ${gradient.via}, ${gradient.to})`;
+    return `linear-gradient(135deg, ${gradient.from}, ${gradient.via}, ${gradient.to})`;
 }
 
 /**
