@@ -223,7 +223,7 @@ const DayColumn: FC<DayColumnProps> = ({
             (lesson.lstext?.includes(' | ') ?? false)
         );
     };
-    const headerPx = hideHeader ? 8 : DAY_HEADER_PX; // minimal spacer when external sticky header used
+    const headerPx = hideHeader ? 0 : DAY_HEADER_PX; // no spacer when external sticky header used
     const containerHeight =
         (END_MIN - START_MIN) * SCALE + BOTTOM_PAD_PX + headerPx;
 
@@ -695,7 +695,7 @@ const DayColumn: FC<DayColumnProps> = ({
                 return (
                     <div
                         key={`exam-${examId}`}
-                        className="absolute pointer-events-none z-10 rounded-md border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
+                        className="absolute pointer-events-none z-10 rounded-2xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
                         style={{
                             top: topPx,
                             height: heightPx,
@@ -1010,7 +1010,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     return (
                         <div
                             key={`${l.id}${b.keySuffix || ''}`}
-                            className={`timetable-lesson absolute rounded-md p-2 sm:p-2 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
+                            className={`timetable-lesson absolute rounded-2xl p-2.5 sm:p-3 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-6 border-rose-600 dark:border-rose-500'
                                     : irregular
@@ -1023,8 +1023,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                 left: `${leftPct}%`,
                                 width: `${widthPct}%`,
                                 background: statusOverlay
-                                    ? `${statusOverlay}, linear-gradient(to right, ${gradient.from}, ${gradient.via}, ${gradient.to})`
-                                    : `linear-gradient(to right, ${gradient.from}, ${gradient.via}, ${gradient.to})`,
+                                    ? `${statusOverlay}, linear-gradient(135deg, ${gradient.from}, ${gradient.via}, ${gradient.to})`
+                                    : `linear-gradient(135deg, ${gradient.from}, ${gradient.via}, ${gradient.to})`,
                                 // Larger invisible hit target for touch
                                 paddingTop: isMobile ? 4 : undefined,
                                 paddingBottom: isMobile ? 4 : undefined,
@@ -1107,7 +1107,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                 </>
                             )}
                             {/* Indicators */}
-                            <div className="absolute top-1 right-1 hidden sm:flex flex-col items-end gap-1">
+                            <div className="absolute top-2 right-2 hidden sm:flex flex-col items-end gap-1">
                                 <div className="flex gap-1 items-center">
                                     {/* Desktop/narrow stacked indicator placed with badges when overlaps are collapsed */}
                                     {(isDesktopCollapsed ||
@@ -1248,7 +1248,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                 }}
                             >
                                 {/* Mobile: absolute icons overlay (no layout impact) */}
-                                <div className="sm:hidden absolute top-1.5 right-1.5 flex flex-row-reverse gap-1 items-center pointer-events-none">
+                                <div className="sm:hidden absolute top-2 right-2 flex flex-row-reverse gap-1 items-center pointer-events-none">
                                     {/* Mobile badges: show limited badges for single lessons, up to 3 for merged lessons */}
                                     {(() => {
                                         const badges: ReactElement[] = [];

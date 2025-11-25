@@ -1538,8 +1538,8 @@ export default function Timetable({
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const isWithinDay = nowMin >= START_MIN && nowMin <= END_MIN;
     const showNowLine = isCurrentWeek && isWithinDay;
-    // When using sticky external header we shrink internal header in columns to 8px
-    const internalHeaderPx = 8; // must match DayColumn hideHeader calculation
+    // When using sticky external header we shrink internal header in columns to 0px
+    const internalHeaderPx = 0; // must match DayColumn hideHeader calculation
     const nowY = (nowMin - START_MIN) * SCALE + internalHeaderPx;
 
     const [hiddenBump, setHiddenBump] = useState(0);
