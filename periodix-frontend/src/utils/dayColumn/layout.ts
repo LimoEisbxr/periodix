@@ -48,11 +48,7 @@ export function lessonsToEvents(
 ): ClusterBlock[] {
     return lessons
         .map((l) => {
-            const s = clamp(
-                untisToMinutes(l.startTime),
-                START_MIN,
-                END_MIN
-            );
+            const s = clamp(untisToMinutes(l.startTime), START_MIN, END_MIN);
             const e = Math.max(
                 s,
                 clamp(untisToMinutes(l.endTime), START_MIN, END_MIN)
@@ -65,11 +61,13 @@ export function lessonsToEvents(
 /**
  * Group overlapping events into clusters
  */
-export function clusterOverlappingEvents(events: ClusterBlock[]): Array<ClusterBlock[]> {
+export function clusterOverlappingEvents(
+    events: ClusterBlock[]
+): Array<ClusterBlock[]> {
     const clusters: Array<ClusterBlock[]> = [];
     let current: ClusterBlock[] = [];
     let curMaxEnd = -1;
-    
+
     for (const ev of events) {
         if (current.length === 0 || ev.startMin < curMaxEnd) {
             current.push(ev);
@@ -80,7 +78,7 @@ export function clusterOverlappingEvents(events: ClusterBlock[]): Array<ClusterB
             curMaxEnd = ev.endMin;
         }
     }
-    
+
     if (current.length) clusters.push(current);
     return clusters;
 }
@@ -94,7 +92,7 @@ export function arrangeClusterIntoColumns(cluster: ClusterBlock[]): {
 } {
     const columns: Array<ClusterBlock[]> = [];
     const placement = new Map<ClusterBlock, number>();
-    
+
     for (const ev of cluster) {
         let placed = false;
         for (let i = 0; i < columns.length; i++) {
@@ -112,16 +110,16 @@ export function arrangeClusterIntoColumns(cluster: ClusterBlock[]): {
             placement.set(ev, columns.length - 1);
         }
     }
-    
+
     const colCount = Math.max(1, columns.length);
-    const blocks: Block[] = cluster.map(ev => ({
+    const blocks: Block[] = cluster.map((ev) => ({
         l: ev.l,
         startMin: ev.startMin,
         endMin: ev.endMin,
         colIndex: placement.get(ev)!,
         colCount,
     }));
-    
+
     return { blocks, colCount };
 }
 
@@ -135,17 +133,17 @@ export function calculateLessonLayout(
 ): Block[] {
     // Convert lessons to time-clamped events
     const events = lessonsToEvents(lessons, START_MIN, END_MIN);
-    
+
     // Group overlapping events into clusters
     const clusters = clusterOverlappingEvents(events);
-    
+
     // Arrange each cluster into columns and collect all blocks
     const allBlocks: Block[] = [];
     for (const cluster of clusters) {
         const { blocks } = arrangeClusterIntoColumns(cluster);
         allBlocks.push(...blocks);
     }
-    
+
     return allBlocks;
 }
 
@@ -180,6 +178,54 @@ export interface LessonPosition {
 }
 
 /**
+ * Calculate the maximum column count needed for a single day's lessons.
+ * This represents the maximum number of overlapping lessons in any time slot.
+ */
+export function calculateDayMaxColCount(
+    lessons: Lesson[],
+    START_MIN: number,
+    END_MIN: number
+): number {
+    if (lessons.length === 0) return 1;
+
+    const events = lessonsToEvents(lessons, START_MIN, END_MIN);
+    const clusters = clusterOverlappingEvents(events);
+
+    let maxColCount = 1;
+    for (const cluster of clusters) {
+        const { colCount } = arrangeClusterIntoColumns(cluster);
+        maxColCount = Math.max(maxColCount, colCount);
+    }
+
+    return maxColCount;
+}
+
+/**
+ * Calculate the maximum column count across all days in a week.
+ * This ensures consistent side-by-side lesson display across all days.
+ *
+ * @param lessonsByDay - Object mapping day ISO strings to lesson arrays
+ * @param START_MIN - Start time in minutes from midnight
+ * @param END_MIN - End time in minutes from midnight
+ * @returns The maximum number of overlapping lessons in any time slot across all days
+ */
+export function calculateWeekMaxColCount(
+    lessonsByDay: Record<string, Lesson[]>,
+    START_MIN: number,
+    END_MIN: number
+): number {
+    let weekMaxColCount = 1;
+
+    for (const dayKey of Object.keys(lessonsByDay)) {
+        const dayLessons = lessonsByDay[dayKey];
+        const dayMax = calculateDayMaxColCount(dayLessons, START_MIN, END_MIN);
+        weekMaxColCount = Math.max(weekMaxColCount, dayMax);
+    }
+
+    return weekMaxColCount;
+}
+
+/**
  * Calculate position for a lesson block
  */
 export function calculateLessonPosition(
@@ -192,18 +238,15 @@ export function calculateLessonPosition(
     const topPx = (block.startMin - START_MIN) * SCALE;
     const endPx = (block.endMin - START_MIN) * SCALE;
     const GAP_BUDGET = isMobile ? 1 : 2;
-    
+
     const MIN_EVENT_HEIGHT = isMobile ? 30 : 14; // slightly larger baseline on mobile for tap comfort
-    let heightPx = Math.max(
-        MIN_EVENT_HEIGHT,
-        endPx - topPx - GAP_BUDGET
-    );
-    
+    let heightPx = Math.max(MIN_EVENT_HEIGHT, endPx - topPx - GAP_BUDGET);
+
     // Enforce per-column cumulative bottom to avoid tiny overlaps from rounding
     const colKey = `${block.colIndex}/${block.colCount}`;
     const lastBottom = lastBottomByCol[colKey] ?? -Infinity;
     const desiredTop = lastBottom + (isMobile ? 1 : 2); // reduced gap on mobile
-    
+
     let adjustedTopPx = topPx;
     if (topPx < desiredTop) {
         const delta = desiredTop - topPx;
@@ -211,11 +254,11 @@ export function calculateLessonPosition(
         heightPx = Math.max(MIN_EVENT_HEIGHT, heightPx - delta);
     }
     lastBottomByCol[colKey] = adjustedTopPx + heightPx;
-    
+
     // Calculate width and position within column
     const widthPercent = (1 / block.colCount) * 100;
     const leftPercent = (block.colIndex / block.colCount) * 100;
-    
+
     return {
         topPx: adjustedTopPx,
         heightPx,

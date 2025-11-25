@@ -129,11 +129,13 @@ const TimeAxis: FC<TimeAxisProps> = ({
                 <div className="mr-1 ml-0.5 sm:mx-1 h-full rounded-md sm:ring-1 sm:ring-slate-900/10 sm:dark:ring-white/10 sm:border sm:border-slate-300/50 sm:dark:border-slate-600/50 shadow-sm overflow-hidden bg-gradient-to-b from-slate-50/85 via-slate-100/80 to-sky-50/70 dark:bg-slate-800/40 dark:bg-none relative">
                     {timeLabelPositions.map((t, i) => {
                         // Position labels directly without adding headerPx since it's already included in toY calculation
+                        // Add extra padding to the first timestamp to prevent it from being cut off
+                        const extraPadding = i === 0 ? 4 : 0;
                         return (
                             <div
                                 key={i}
                                 className="absolute left-0 right-0 -translate-y-1/2 text-[11px] leading-none text-slate-500 dark:text-slate-400 select-none text-center"
-                                style={{ top: t.y }}
+                                style={{ top: t.y + extraPadding }}
                             >
                                 {t.label}
                             </div>

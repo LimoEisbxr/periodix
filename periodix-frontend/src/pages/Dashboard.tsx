@@ -1282,7 +1282,7 @@ export default function Dashboard({
     return (
         <div className={'min-h-screen'}>
             <header className="header-blur sticky top-0 z-[200]">
-                <div className="mx-auto flex max-w-screen-2xl items-center justify-between p-4">
+                <div className="mx-auto flex items-center justify-between p-4">
                     <div className="logo-text text-xl sm:text-2xl">
                         Periodix
                     </div>
@@ -1475,7 +1475,7 @@ export default function Dashboard({
                 </div>
             </header>
 
-            <main className="mx-auto max-w-screen-2xl p-1 sm:p-4">
+            <main className="mx-auto p-1 sm:p-4">
                 <section className="card p-1 sm:p-4 max-sm:rounded-none max-sm:border-x-0">
                     <div className="space-y-2 sm:space-y-4">
                         {/* Week navigation buttons (desktop only) - separate row */}

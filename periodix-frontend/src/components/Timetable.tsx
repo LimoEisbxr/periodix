@@ -33,6 +33,7 @@ import {
     applyRubberBandResistance,
 } from '../utils/timetable/layout';
 import { mergeLessons } from '../utils/timetable/lessonMerging';
+import { calculateWeekMaxColCount } from '../utils/dayColumn/layout';
 // (Mobile vertical layout removed; keeping original horizontal week view across breakpoints)
 
 // Augment global Window type for debug object (scoped here to avoid polluting other modules)
@@ -1689,6 +1690,13 @@ export default function Timetable({
         [lessonsByDay]
     );
 
+    // Calculate the maximum number of overlapping lessons across all days in the week
+    // This ensures consistent column width/positioning across all days
+    const weekMaxColCount = useMemo(
+        () => calculateWeekMaxColCount(lessonsByDay, START_MIN, END_MIN),
+        [lessonsByDay, START_MIN, END_MIN]
+    );
+
     // Helper to check if a week is a full holiday
     const getWeekHolidayInfo = useCallback(
         (weekDays: Date[]) => {
@@ -2064,6 +2072,10 @@ export default function Timetable({
                                                     estimatedWidth={
                                                         estimatedFocusedDayWidth
                                                     }
+                                                    weekMaxColCount={
+                                                        weekMaxColCount
+                                                    }
+                                                    isDayView
                                                 />
                                             </div>
                                         );
@@ -2150,6 +2162,10 @@ export default function Timetable({
                                                     estimatedWidth={
                                                         estimatedFocusedDayWidth
                                                     }
+                                                    weekMaxColCount={
+                                                        weekMaxColCount
+                                                    }
+                                                    isDayView
                                                 />
                                                 {!items.length && (
                                                     <div className="absolute inset-0 flex items-center justify-center z-40">
@@ -2260,6 +2276,10 @@ export default function Timetable({
                                                     estimatedWidth={
                                                         estimatedFocusedDayWidth
                                                     }
+                                                    weekMaxColCount={
+                                                        weekMaxColCount
+                                                    }
+                                                    isDayView
                                                 />
                                             </div>
                                         );
@@ -2437,6 +2457,9 @@ export default function Timetable({
                                                     estimatedWidth={
                                                         estimatedDayWidth
                                                     }
+                                                    weekMaxColCount={
+                                                        weekMaxColCount
+                                                    }
                                                 />
                                             </div>
                                         );
@@ -2530,6 +2553,9 @@ export default function Timetable({
                                                     }
                                                     estimatedWidth={
                                                         estimatedDayWidth
+                                                    }
+                                                    weekMaxColCount={
+                                                        weekMaxColCount
                                                     }
                                                 />
                                             </div>
@@ -2630,6 +2656,9 @@ export default function Timetable({
                                                     }
                                                     estimatedWidth={
                                                         estimatedDayWidth
+                                                    }
+                                                    weekMaxColCount={
+                                                        weekMaxColCount
                                                     }
                                                 />
                                             </div>
