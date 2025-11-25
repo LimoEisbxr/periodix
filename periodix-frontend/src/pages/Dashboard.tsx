@@ -164,8 +164,7 @@ export default function Dashboard({
     );
 
     // Initialize timetable cache hook
-    const { getTimetableData, getCachedData, invalidateCache } =
-        useTimetableCache();
+    const { getTimetableData, getCachedData } = useTimetableCache();
 
     const formatTimestamp = useCallback((iso?: string | null) => {
         if (!iso) return null;
@@ -797,33 +796,6 @@ export default function Dashboard({
         },
         [token, selectedUser?.id, user.isAdmin]
     );
-
-    // Handle pull-to-refresh
-    const handleRefresh = useCallback(async () => {
-        // Invalidate cache for current user and reload data
-        invalidateCache(selectedUser?.id || user.id);
-
-        // Reload the appropriate data
-        if (selectedClass) {
-            const cacheKey = `${selectedClass.id}:${weekStartStr}:${weekEndStr}`;
-            classTimetableCacheRef.current.delete(cacheKey);
-            await loadClass(selectedClass.id);
-        } else if (selectedUser) {
-            await loadUser(selectedUser.id);
-        } else {
-            await loadMine();
-        }
-    }, [
-        invalidateCache,
-        selectedClass,
-        selectedUser,
-        user.id,
-        loadClass,
-        loadUser,
-        loadMine,
-        weekStartStr,
-        weekEndStr,
-    ]);
 
     const handleDismissFallback = useCallback(() => {
         if (fallbackKeyRef.current) {
@@ -1898,7 +1870,6 @@ export default function Dashboard({
                             getAdjacentWeekData={getAdjacentWeekData}
                             onLessonModalStateChange={setIsLessonModalOpen}
                             isOnboardingActive={isOnboardingOpen}
-                            onRefresh={handleRefresh}
                             isRateLimited={retrySeconds !== null}
                             isClassView={!!selectedClass}
                         />

@@ -6,7 +6,6 @@ import {
     useCallback,
     useLayoutEffect,
 } from 'react';
-import PullToRefresh from 'pulltorefreshjs';
 import type {
     Lesson,
     TimetableResponse,
@@ -71,7 +70,6 @@ export default function Timetable({
     getAdjacentWeekData,
     onLessonModalStateChange,
     isOnboardingActive,
-    onRefresh,
     isRateLimited,
     isClassView = false,
 }: {
@@ -95,7 +93,6 @@ export default function Timetable({
     ) => TimetableResponse | null; // function to get cached data for adjacent weeks
     onLessonModalStateChange?: (isOpen: boolean) => void; // callback for onboarding
     isOnboardingActive?: boolean;
-    onRefresh?: () => Promise<void>; // callback for pull-to-refresh
     isRateLimited?: boolean;
     isClassView?: boolean;
     // Extended: allow passing current offset when color set
@@ -444,9 +441,6 @@ export default function Timetable({
     // Navigation lock to avoid double week jumps when diagonal / fast gestures overshoot
     const lastNavigationTimeRef = useRef<number>(0);
 
-    // Pull-to-refresh state (handled by pulltorefreshjs library)
-    const [isRefreshing, setIsRefreshing] = useState(false);
-
     const animationRef = useRef<number | null>(null);
     const translateXRef = useRef(0); // keep latest translateX for animation starts
     useEffect(() => {
@@ -455,10 +449,8 @@ export default function Timetable({
     // Refs mirroring mutable interaction state for stable single-mount handlers
     const isAnimatingRef = useRef(isAnimating);
     const isDraggingRef = useRef(isDragging);
-    const isRefreshingRef = useRef(isRefreshing);
     const axisWidthRef = useRef(axisWidth);
     const onWeekNavigateRef = useRef(onWeekNavigate);
-    const onRefreshRef = useRef(onRefresh);
     const focusedDayRef = useRef(focusedDay);
     const weekStartRef = useRef(weekStart);
     const isDebugRef = useRef(false);
@@ -471,17 +463,11 @@ export default function Timetable({
         isDraggingRef.current = isDragging;
     }, [isDragging]);
     useEffect(() => {
-        isRefreshingRef.current = isRefreshing;
-    }, [isRefreshing]);
-    useEffect(() => {
         axisWidthRef.current = axisWidth;
     }, [axisWidth]);
     useEffect(() => {
         onWeekNavigateRef.current = onWeekNavigate;
     }, [onWeekNavigate]);
-    useEffect(() => {
-        onRefreshRef.current = onRefresh;
-    }, [onRefresh]);
     useEffect(() => {
         focusedDayRef.current = focusedDay;
     }, [focusedDay]);
@@ -566,42 +552,6 @@ export default function Timetable({
         };
     }, []);
 
-    // Initialize pulltorefreshjs library
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el || !onRefresh) return;
-
-        const ptr = PullToRefresh.init({
-            mainElement: el,
-            triggerElement: el,
-            distThreshold: 80,
-            distMax: 120,
-            distReload: 60,
-            distIgnore: 0,
-            // Use padding-top so the content moves down when pulling
-            cssProp: 'padding-top',
-            instructionsPullToRefresh: 'Pull to refresh',
-            instructionsReleaseToRefresh: 'Release to refresh',
-            instructionsRefreshing: 'Refreshing...',
-            shouldPullToRefresh: () => {
-                // Only allow pull-to-refresh when scrolled to the very top
-                return el.scrollTop <= 0;
-            },
-            onRefresh: async () => {
-                setIsRefreshing(true);
-                try {
-                    await onRefresh();
-                } finally {
-                    setIsRefreshing(false);
-                }
-            },
-        });
-
-        return () => {
-            ptr.destroy();
-        };
-    }, [onRefresh]);
-
     // Reset transform when week changes (continuous band effect)
     useLayoutEffect(() => {
         // Only reset if we have a non-zero translation (meaning we just navigated)
@@ -663,20 +613,14 @@ export default function Timetable({
         const INTERACTIVE_SELECTOR =
             'input,textarea,select,button,[contenteditable="true"],[role="textbox"]';
 
-        // Pull-to-refresh is now handled by pulltorefreshjs library
-        // This touch handling is only for week navigation swipes
+        // Touch handling for week navigation swipes
 
         const handleTouchStart = (e: TouchEvent) => {
-            if (
-                e.touches.length !== 1 ||
-                isAnimatingRef.current ||
-                isRefreshingRef.current
-            ) {
+            if (e.touches.length !== 1 || isAnimatingRef.current) {
                 if (isDebugRef.current) {
                     console.debug('[TT] touchstart gated', {
                         touches: e.touches.length,
                         animating: isAnimatingRef.current,
-                        refreshing: isRefreshingRef.current,
                     });
                 }
                 return;
