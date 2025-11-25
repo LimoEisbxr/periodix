@@ -129,12 +129,42 @@ export function generateGradient(
 }
 
 /**
- * Convert ColorGradient to Tailwind-compatible class names
+ * Interpolate between two hex colors at a given ratio (0-1)
+ */
+export function interpolateColor(color1: string, color2: string, ratio: number): string {
+    const [h1, s1, l1] = hexToHsl(color1);
+    const [h2, s2, l2] = hexToHsl(color2);
+    
+    // Handle hue interpolation (shortest path around the color wheel)
+    let hueDiff = h2 - h1;
+    if (hueDiff > 180) hueDiff -= 360;
+    if (hueDiff < -180) hueDiff += 360;
+    
+    const h = (h1 + hueDiff * ratio + 360) % 360;
+    const s = s1 + (s2 - s1) * ratio;
+    const l = l1 + (l2 - l1) * ratio;
+    
+    return hslToHex(h, s, l);
+}
+
+/**
+ * Convert ColorGradient to smooth CSS gradient string with 5 color stops
+ */
+export function gradientToSmoothCss(gradient: ColorGradient, angle: number = 135): string {
+    // Create intermediate colors for smoother gradient
+    const midFromVia = interpolateColor(gradient.from, gradient.via, 0.5);
+    const midViaTo = interpolateColor(gradient.via, gradient.to, 0.5);
+    
+    // 5-stop gradient for smoother transitions
+    return `linear-gradient(${angle}deg, ${gradient.from} 0%, ${midFromVia} 25%, ${gradient.via} 50%, ${midViaTo} 75%, ${gradient.to} 100%)`;
+}
+
+/**
+ * Convert ColorGradient to Tailwind-compatible class names with smooth interpolation
+ * Uses 5 color stops for smoother transitions
  */
 export function gradientToTailwindClasses(gradient: ColorGradient): string {
-    // Since we can't use arbitrary values directly in Tailwind classes in this context,
-    // we'll return a style object instead that can be applied via CSS-in-JS
-    return `linear-gradient(135deg, ${gradient.from}, ${gradient.via}, ${gradient.to})`;
+    return gradientToSmoothCss(gradient, 135);
 }
 
 /**

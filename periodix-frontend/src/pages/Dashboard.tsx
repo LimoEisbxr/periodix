@@ -1281,7 +1281,7 @@ export default function Dashboard({
 
     return (
         <div className={'min-h-screen'}>
-            <header className="header-blur sticky top-0 z-[200]">
+            <header className="header-blur sticky top-0 z-50">
                 <div className="mx-auto flex items-center justify-between p-4">
                     <div className="logo-text text-xl sm:text-2xl">
                         Periodix
@@ -1301,7 +1301,7 @@ export default function Dashboard({
                             isOpen={isNotificationPanelOpen}
                         />
                         {/* Hamburger menu */}
-                        <div className="relative z-[100]" ref={menuRef}>
+                        <div className="relative z-100" ref={menuRef}>
                             <button
                                 className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ${
                                     isMenuOpen
@@ -1908,7 +1908,7 @@ export default function Dashboard({
 
             {/* Mobile full-screen search overlay */}
             {mobileSearchOpen && (
-                <div className="sm:hidden fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col">
+                <div className="sm:hidden fixed inset-0 z-250 bg-white dark:bg-slate-900 flex flex-col">
                     {/* Header with gradient blur effect */}
                     <div className="header-blur p-4 border-b border-slate-200/60 dark:border-slate-700/60">
                         <div className="flex items-center gap-3">
