@@ -53,7 +53,12 @@ import type {
 } from '../types';
 import { getAbsencePresetRange } from '../utils/absencePresets';
 
-type SearchResult = { type: 'user'; id: string; username: string; displayName: string | null };
+type SearchResult = {
+    type: 'user';
+    id: string;
+    username: string;
+    displayName: string | null;
+};
 
 type FallbackNoticeState = {
     reason: TimetableFallbackReason | 'UNKNOWN';
@@ -1090,7 +1095,9 @@ export default function Dashboard({
                         signal: ac.signal,
                     }
                 );
-                const usersData = usersResponse.ok ? await usersResponse.json() : { users: [] };
+                const usersData = usersResponse.ok
+                    ? await usersResponse.json()
+                    : { users: [] };
 
                 if (cancelled) return;
                 if (queryText.trim() !== currentQuery) return; // stale
@@ -1285,7 +1292,11 @@ export default function Dashboard({
                         </div>
                         <NotificationBell
                             notifications={notifications}
-                            onClick={() => setIsNotificationPanelOpen(!isNotificationPanelOpen)}
+                            onClick={() =>
+                                setIsNotificationPanelOpen(
+                                    !isNotificationPanelOpen
+                                )
+                            }
                             className="mr-1"
                             isOpen={isNotificationPanelOpen}
                         />
@@ -1293,7 +1304,9 @@ export default function Dashboard({
                         <div className="relative z-[100]" ref={menuRef}>
                             <button
                                 className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ${
-                                    isMenuOpen ? 'bg-slate-200 dark:bg-slate-700' : ''
+                                    isMenuOpen
+                                        ? 'bg-slate-200 dark:bg-slate-700'
+                                        : ''
                                 }`}
                                 title="Menu"
                                 onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -1302,7 +1315,11 @@ export default function Dashboard({
                             >
                                 <svg
                                     className="h-5 w-5 text-slate-600 dark:text-slate-300 transition-transform duration-200"
-                                    style={{ transform: isMenuOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                                    style={{
+                                        transform: isMenuOpen
+                                            ? 'rotate(90deg)'
+                                            : 'rotate(0deg)',
+                                    }}
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
@@ -1330,7 +1347,10 @@ export default function Dashboard({
                                         onClick={() => {
                                             setIsMenuOpen(false);
                                             setIsSettingsModalOpen(true);
-                                            trackActivity(token, 'settings').catch(console.error);
+                                            trackActivity(
+                                                token,
+                                                'settings'
+                                            ).catch(console.error);
                                         }}
                                     >
                                         <svg
@@ -1362,7 +1382,9 @@ export default function Dashboard({
                                         className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                                         onClick={() => {
                                             setIsMenuOpen(false);
-                                            setIsAbsencePanelOpen(!isAbsencePanelOpen);
+                                            setIsAbsencePanelOpen(
+                                                !isAbsencePanelOpen
+                                            );
                                         }}
                                     >
                                         <svg
@@ -2136,18 +2158,14 @@ export default function Dashboard({
                                                     setSelectedClass(null);
                                                     setQueryText('');
                                                     setResults([]);
-                                                    setMobileSearchOpen(
-                                                        false
-                                                    );
+                                                    setMobileSearchOpen(false);
                                                     if (r.id !== user.id)
                                                         loadUser(r.id);
                                                     else loadMine();
                                                 }}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div
-                                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md bg-gradient-to-br from-sky-500 to-indigo-600"
-                                                    >
+                                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md bg-gradient-to-br from-sky-500 to-indigo-600">
                                                         {(
                                                             r.displayName ||
                                                             r.username
