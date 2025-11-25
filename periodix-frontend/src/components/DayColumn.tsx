@@ -41,6 +41,8 @@ export type DayColumnProps = {
     isClassTimetable?: boolean;
     onHolidayClick?: (holiday: Holiday) => void;
     estimatedWidth?: number;
+    weekMaxColCount?: number; // Maximum column count across the week for consistent layout
+    isDayView?: boolean; // Whether this is displayed in single-day (focused) view
 };
 
 const SingleLineFitText: FC<{ text: string; className?: string }> = ({
@@ -117,6 +119,8 @@ const DayColumn: FC<DayColumnProps> = ({
     isClassTimetable = false,
     onHolidayClick,
     estimatedWidth = 0,
+    weekMaxColCount,
+    isDayView = false,
 }) => {
     // Developer JSON modal state
     const [showDayJson, setShowDayJson] = useState(false);
@@ -717,16 +721,23 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Desktop wide: render all columns
                     // Narrow (measured) non-mobile: collapse to 1 (rightmost)
                     // Mobile: render as many as reasonably fit at a minimum width; otherwise collapse to 1
-                    const GAP_PCT = 1.5; // Reduced gap for better space utilization
+                    const GAP_PCT = 0.5; // Minimal gap for nearly seamless side-by-side lessons
                     const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
-                    const MOBILE_MIN_COLUMN_WIDTH = 140; // px - min per-lesson width on mobile to allow side-by-side
-                    const DESKTOP_MIN_COLUMN_WIDTH = isClassTimetable ? 28 : 60; // px - min per-lesson width on desktop before collapsing
-                    const DESKTOP_MAX_COLUMNS = 3;
+                    const MOBILE_MIN_COLUMN_WIDTH = 60; // px - min per-lesson width on mobile to allow side-by-side
+                    // In day view, allow more columns with smaller min width; in week view use larger min width to show fewer columns
+                    const DESKTOP_MIN_COLUMN_WIDTH = isDayView ? 25 : 80; // Larger min width in week view = fewer columns
+                    // In day view, allow more columns since we have more space
+                    const DESKTOP_MAX_COLUMNS = isDayView ? 12 : 8;
 
-                    let visibleCols = b.colCount;
+                    // Use weekMaxColCount for consistent layout across all days when available
+                    const effectiveColCount = weekMaxColCount
+                        ? Math.max(b.colCount, weekMaxColCount)
+                        : b.colCount;
+
+                    let visibleCols = effectiveColCount;
 
                     if (isMobile) {
-                        if (b.colCount > 1) {
+                        if (effectiveColCount > 1) {
                             const maxFit = Math.max(
                                 1,
                                 Math.floor(
@@ -734,11 +745,11 @@ const DayColumn: FC<DayColumnProps> = ({
                                         (MOBILE_MIN_COLUMN_WIDTH + gapPx)
                                 )
                             );
-                            visibleCols = Math.min(b.colCount, maxFit);
+                            visibleCols = Math.min(effectiveColCount, maxFit);
                         }
                     } else {
                         // Desktop overcrowding check with explicit cap
-                        if (b.colCount > 1) {
+                        if (effectiveColCount > 1) {
                             const maxFit = Math.max(
                                 1,
                                 Math.floor(
@@ -750,23 +761,27 @@ const DayColumn: FC<DayColumnProps> = ({
                                 DESKTOP_MAX_COLUMNS,
                                 maxFit
                             );
-                            visibleCols = Math.min(b.colCount, cappedFit);
+                            visibleCols = Math.min(
+                                effectiveColCount,
+                                cappedFit
+                            );
                         }
                     }
 
-                    const isCollapsed = visibleCols < b.colCount;
+                    const isCollapsed = visibleCols < b.colCount; // Only collapsed if actual lessons are hidden
                     const isMobileCollapsed = isMobile && isCollapsed; // Keep for mobile-specific styling if needed
                     const isDesktopCollapsed =
                         !isMobile && (collapseNarrow || isCollapsed);
 
                     // Hide non-visible columns depending on state
+                    // Note: we check against b.colCount (actual lessons) not effectiveColCount (layout slots)
                     if (b.colCount > 1) {
                         if (!isMobile && collapseNarrow) {
                             // Show the first column (Highest Priority)
                             if (b.colIndex !== 0) return null;
-                        } else if (isCollapsed) {
-                            // Show the first N columns (Highest Priority)
-                            if (b.colIndex >= visibleCols) return null;
+                        } else if (b.colIndex >= visibleCols) {
+                            // Hide lessons that don't fit in the visible columns
+                            return null;
                         }
                     }
 
@@ -810,10 +825,17 @@ const DayColumn: FC<DayColumnProps> = ({
                         ? 'linear-gradient(to right, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.55), rgba(16, 185, 129, 0.6))'
                         : null;
 
+                    // Use b.colCount (actual lessons in this cluster) for width calculation
+                    // so lessons always fill the whole row when they fit
+                    // Only use visibleCols when some lessons are actually hidden (collapsed)
+                    const layoutColCount = isCollapsed
+                        ? visibleCols
+                        : b.colCount;
+
                     let widthPct =
-                        (100 - GAP_PCT * (b.colCount - 1)) / b.colCount;
+                        (100 - GAP_PCT * (layoutColCount - 1)) / layoutColCount;
                     let leftPct = b.colIndex * (widthPct + GAP_PCT);
-                    if (b.colCount > 1) {
+                    if (layoutColCount > 1) {
                         if (!isMobile && collapseNarrow) {
                             widthPct = 100;
                             leftPct = 0;

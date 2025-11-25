@@ -1282,7 +1282,7 @@ export default function Dashboard({
     return (
         <div className={'min-h-screen'}>
             <header className="header-blur sticky top-0 z-[200]">
-                <div className="mx-auto flex max-w-screen-2xl items-center justify-between p-4">
+                <div className="mx-auto flex items-center justify-between p-4">
                     <div className="logo-text text-xl sm:text-2xl">
                         Periodix
                     </div>
@@ -1475,8 +1475,8 @@ export default function Dashboard({
                 </div>
             </header>
 
-            <main className="mx-auto max-w-screen-2xl p-4">
-                <section className="card p-4">
+            <main className="mx-auto p-1 sm:p-4">
+                <section className="card p-1 sm:p-4 max-sm:rounded-none max-sm:border-x-0">
                     <div className="space-y-2 sm:space-y-4">
                         {/* Week navigation buttons (desktop only) - separate row */}
                         <div className="hidden sm:flex mr-auto">
@@ -1818,7 +1818,7 @@ export default function Dashboard({
                         </div>
                         {/* Week info removed */}
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-2 sm:mt-4">
                         {retrySeconds !== null ? (
                             <div className="mb-3 rounded-md border border-sky-300 bg-sky-50 p-3 text-sky-800 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-200">
                                 Rate limit reached. Retrying in {retrySeconds}s…
