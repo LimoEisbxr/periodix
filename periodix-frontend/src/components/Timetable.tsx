@@ -28,6 +28,7 @@ import LessonModal from './LessonModal';
 import HolidayModal from './HolidayModal';
 import TimeAxis from './TimeAxis';
 import DayColumn from './DayColumn';
+import Spinner from './Spinner';
 import {
     shouldNavigateWeek,
     applyRubberBandResistance,
@@ -1612,8 +1613,8 @@ export default function Timetable({
 
     if (!data)
         return (
-            <div className="text-sm text-slate-600 dark:text-slate-300">
-                Loading…
+            <div className="flex items-center justify-center p-8 text-slate-400 dark:text-slate-500">
+                <Spinner size="md" />
             </div>
         );
 
