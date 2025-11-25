@@ -1680,10 +1680,10 @@ export default function Dashboard({
                                 </div>
                             </div>
                             {/* Mobile icon cluster */}
-                            <div className="flex items-end gap-2 sm:hidden">
+                            <div className="flex items-end gap-2 sm:hidden ml-2">
                                 <button
                                     type="button"
-                                    className={`rounded-md p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
+                                    className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
                                         isSearchViewActive
                                             ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
                                             : 'text-slate-600 dark:text-slate-300'
@@ -1707,7 +1707,7 @@ export default function Dashboard({
                                 </button>
                                 <button
                                     type="button"
-                                    className={`rounded-md p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
+                                    className={`rounded-full p-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all ${
                                         isClassViewActive
                                             ? 'bg-slate-200 dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.5)] dark:shadow-[0_0_10px_rgba(56,189,248,0.4)]'
                                             : 'text-slate-600 dark:text-slate-300'
