@@ -1034,9 +1034,9 @@ const DayColumn: FC<DayColumnProps> = ({
                             key={`${l.id}${b.keySuffix || ''}`}
                             className={`timetable-lesson absolute rounded-2xl p-2.5 sm:p-3 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
-                                    ? 'border-6 border-rose-600 dark:border-rose-500'
+                                    ? 'border-[3px] border-rose-600 dark:border-rose-500'
                                     : irregular
-                                    ? 'border-6 border-emerald-500 dark:border-emerald-400'
+                                    ? 'border-[3px] border-emerald-500 dark:border-emerald-400'
                                     : 'ring-1 ring-slate-900/10 dark:ring-white/15'
                             }`}
                             style={{

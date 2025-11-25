@@ -643,3 +643,56 @@ html.dark .change-highlight-mobile {
 .animate-pointer-click {
     animation: pointer-click 1.5s ease-in-out infinite;
 }
+
+/* Pull-to-refresh (pulltorefreshjs) custom styling */
+.ptr--ptr {
+    box-shadow: none !important;
+    background: transparent !important;
+    font-family: inherit !important;
+}
+
+.ptr--box {
+    padding: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.ptr--content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px);
+    border-radius: 9999px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(226, 232, 240, 0.6);
+    color: #475569 !important;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Dark mode - target via .dark parent */
+.dark .ptr--ptr,
+.dark .ptr--box,
+.dark .ptr--content,
+.dark .ptr--text,
+.dark .ptr--icon {
+    color: #e2e8f0 !important;
+}
+
+.dark .ptr--content {
+    background: rgba(30, 41, 59, 0.95) !important;
+    border-color: rgba(71, 85, 105, 0.6) !important;
+}
+
+.ptr--icon {
+    font-size: 18px;
+    color: inherit !important;
+}
+
+.ptr--text {
+    font-size: 14px;
+    color: inherit !important;
+}

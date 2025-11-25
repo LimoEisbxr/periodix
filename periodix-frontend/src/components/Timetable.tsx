@@ -6,6 +6,7 @@ import {
     useCallback,
     useLayoutEffect,
 } from 'react';
+import PullToRefresh from 'pulltorefreshjs';
 import type {
     Lesson,
     TimetableResponse,
@@ -443,13 +444,8 @@ export default function Timetable({
     // Navigation lock to avoid double week jumps when diagonal / fast gestures overshoot
     const lastNavigationTimeRef = useRef<number>(0);
 
-    // Pull-to-refresh state
+    // Pull-to-refresh state (handled by pulltorefreshjs library)
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [isCompletingRefresh, setIsCompletingRefresh] = useState(false);
-    const [isAnimatingOut, setIsAnimatingOut] = useState(false);
-    const [pullDistance, setPullDistance] = useState(0);
-    const [isPulling, setIsPulling] = useState(false);
-    const refreshThreshold = 200; // Distance needed to trigger refresh
 
     const animationRef = useRef<number | null>(null);
     const translateXRef = useRef(0); // keep latest translateX for animation starts
@@ -460,10 +456,6 @@ export default function Timetable({
     const isAnimatingRef = useRef(isAnimating);
     const isDraggingRef = useRef(isDragging);
     const isRefreshingRef = useRef(isRefreshing);
-    const isCompletingRefreshRef = useRef(isCompletingRefresh);
-    const isAnimatingOutRef = useRef(isAnimatingOut);
-    const isPullingRef = useRef(isPulling);
-    const pullDistanceRef = useRef(pullDistance);
     const axisWidthRef = useRef(axisWidth);
     const onWeekNavigateRef = useRef(onWeekNavigate);
     const onRefreshRef = useRef(onRefresh);
@@ -481,18 +473,6 @@ export default function Timetable({
     useEffect(() => {
         isRefreshingRef.current = isRefreshing;
     }, [isRefreshing]);
-    useEffect(() => {
-        isCompletingRefreshRef.current = isCompletingRefresh;
-    }, [isCompletingRefresh]);
-    useEffect(() => {
-        isAnimatingOutRef.current = isAnimatingOut;
-    }, [isAnimatingOut]);
-    useEffect(() => {
-        isPullingRef.current = isPulling;
-    }, [isPulling]);
-    useEffect(() => {
-        pullDistanceRef.current = pullDistance;
-    }, [pullDistance]);
     useEffect(() => {
         axisWidthRef.current = axisWidth;
     }, [axisWidth]);
@@ -517,8 +497,6 @@ export default function Timetable({
             setIsDragging(false);
             setTranslateX(0);
             setIsAnimating(false);
-            setIsPulling(false);
-            setPullDistance(0);
 
             // Reset day view state
             setDayTranslateX(0);
@@ -537,8 +515,6 @@ export default function Timetable({
             // Reset ref mirrors to match state
             isDraggingRef.current = false;
             isAnimatingRef.current = false;
-            isPullingRef.current = false;
-            pullDistanceRef.current = 0;
             isDayAnimatingRef.current = false;
             isDayDraggingRef.current = false;
 
@@ -589,6 +565,43 @@ export default function Timetable({
             );
         };
     }, []);
+
+    // Initialize pulltorefreshjs library
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el || !onRefresh) return;
+
+        const ptr = PullToRefresh.init({
+            mainElement: el,
+            triggerElement: el,
+            distThreshold: 80,
+            distMax: 120,
+            distReload: 60,
+            distIgnore: 0,
+            // Use padding-top so the content moves down when pulling
+            cssProp: 'padding-top',
+            instructionsPullToRefresh: 'Pull to refresh',
+            instructionsReleaseToRefresh: 'Release to refresh',
+            instructionsRefreshing: 'Refreshing...',
+            shouldPullToRefresh: () => {
+                // Only allow pull-to-refresh when scrolled to the very top
+                return el.scrollTop <= 0;
+            },
+            onRefresh: async () => {
+                setIsRefreshing(true);
+                try {
+                    await onRefresh();
+                } finally {
+                    setIsRefreshing(false);
+                }
+            },
+        });
+
+        return () => {
+            ptr.destroy();
+        };
+    }, [onRefresh]);
+
     // Reset transform when week changes (continuous band effect)
     useLayoutEffect(() => {
         // Only reset if we have a non-zero translation (meaning we just navigated)
@@ -650,21 +663,20 @@ export default function Timetable({
         const INTERACTIVE_SELECTOR =
             'input,textarea,select,button,[contenteditable="true"],[role="textbox"]';
 
+        // Pull-to-refresh is now handled by pulltorefreshjs library
+        // This touch handling is only for week navigation swipes
+
         const handleTouchStart = (e: TouchEvent) => {
             if (
                 e.touches.length !== 1 ||
                 isAnimatingRef.current ||
-                isRefreshingRef.current ||
-                isCompletingRefreshRef.current ||
-                isAnimatingOutRef.current
+                isRefreshingRef.current
             ) {
                 if (isDebugRef.current) {
                     console.debug('[TT] touchstart gated', {
                         touches: e.touches.length,
                         animating: isAnimatingRef.current,
                         refreshing: isRefreshingRef.current,
-                        completing: isCompletingRefreshRef.current,
-                        animOut: isAnimatingOutRef.current,
                     });
                 }
                 return;
@@ -684,6 +696,7 @@ export default function Timetable({
             }
 
             skipSwipe = false;
+
             setIsDragging(true);
             isDraggingRef.current = true;
             touchStartX.current = e.touches[0].clientX;
@@ -694,7 +707,6 @@ export default function Timetable({
 
         const handleTouchMove = (e: TouchEvent) => {
             if (
-                skipSwipe ||
                 !isDraggingRef.current ||
                 touchStartX.current == null ||
                 touchStartY.current == null
@@ -707,64 +719,27 @@ export default function Timetable({
             const dx = currentX - touchStartX.current;
             const dy = currentY - touchStartY.current;
 
-            // Check if this is a downward swipe at the top of the page
-            const isAtTop = el.scrollTop <= 5; // Allow small tolerance for scroll position
-            const isDownwardSwipe =
-                dy > 0 && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 20;
-
-            if (isAtTop && isDownwardSwipe && onRefreshRef.current) {
-                // This is a pull-to-refresh gesture
-                e.preventDefault();
-                if (!isPullingRef.current) {
-                    setIsPulling(true);
-                    isPullingRef.current = true;
-                }
-
-                // Calculate pull distance with resistance
-                let distance = dy;
-                if (distance > refreshThreshold) {
-                    // Add resistance when pulling beyond threshold
-                    distance = refreshThreshold + (dy - refreshThreshold) * 0.3;
-                }
-
-                const clamped = Math.max(
-                    0,
-                    Math.min(distance, refreshThreshold * 1.5)
-                );
-                setPullDistance(clamped);
-                pullDistanceRef.current = clamped;
+            // If skipSwipe was set (e.g., started on interactive element), bail
+            if (skipSwipe) {
                 return;
             }
 
-            // Check if this is more of a vertical scroll (but not pull-to-refresh)
-            // Only cancel if we haven't moved much horizontally yet (< 40px)
-            // This prevents snapping back if the user swipes diagonally but clearly intends to swipe horizontally
-            if (
-                Math.abs(dy) > Math.abs(dx) &&
-                Math.abs(dy) > 20 &&
-                Math.abs(dx) < 40
-            ) {
+            // For horizontal swipes (week navigation), check if movement is primarily horizontal
+            const isHorizontalSwipe =
+                Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10;
+
+            // If it's clearly a vertical scroll, let browser handle it (pull-to-refresh handled by library)
+            if (!isHorizontalSwipe && Math.abs(dy) > 15) {
                 skipSwipe = true;
                 setIsDragging(false);
                 isDraggingRef.current = false;
                 setTranslateX(0);
                 translateXRef.current = 0;
-                setIsPulling(false);
-                isPullingRef.current = false;
-                setPullDistance(0);
-                pullDistanceRef.current = 0;
                 return;
             }
 
-            // Reset pull-to-refresh state if it was a horizontal gesture
-            if (isPullingRef.current) {
-                setIsPulling(false);
-                isPullingRef.current = false;
-                setPullDistance(0);
-                pullDistanceRef.current = 0;
-            }
             // Prevent default only for horizontal swipes to avoid conflicts with scrolling
-            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+            if (isHorizontalSwipe) {
                 e.preventDefault();
             }
 
@@ -1093,8 +1068,6 @@ export default function Timetable({
                 skipSwipe = false;
                 setIsDragging(false);
                 setTranslateX(0);
-                setIsPulling(false);
-                setPullDistance(0);
                 return;
             }
 
@@ -1106,8 +1079,6 @@ export default function Timetable({
             ) {
                 setIsDragging(false);
                 setTranslateX(0);
-                setIsPulling(false);
-                setPullDistance(0);
                 return;
             }
 
@@ -1117,61 +1088,7 @@ export default function Timetable({
             setIsDragging(false);
             isDraggingRef.current = false;
 
-            // Handle pull-to-refresh
-            if (
-                isPullingRef.current &&
-                onRefreshRef.current &&
-                pullDistanceRef.current >= refreshThreshold
-            ) {
-                setIsRefreshing(true);
-                isRefreshingRef.current = true;
-                setIsPulling(false);
-                isPullingRef.current = false;
-                setPullDistance(0);
-                pullDistanceRef.current = 0;
-
-                onRefreshRef
-                    .current?.()
-                    .then(() => {
-                        // Start completion phase with loading circle
-                        setIsRefreshing(false);
-                        isRefreshingRef.current = false;
-                        setIsCompletingRefresh(true);
-                        isCompletingRefreshRef.current = true;
-
-                        // Show completion loading for 1 second, then animate out
-                        setTimeout(() => {
-                            setIsCompletingRefresh(false);
-                            isCompletingRefreshRef.current = false;
-                            setIsAnimatingOut(true);
-                            isAnimatingOutRef.current = true;
-
-                            // Complete the animation after flying out
-                            setTimeout(() => {
-                                setIsAnimatingOut(false);
-                                isAnimatingOutRef.current = false;
-                            }, 500); // Animation duration
-                        }, 1000); // 1 second loading circle
-                    })
-                    .catch((error) => {
-                        console.error('Refresh failed:', error);
-                        setIsRefreshing(false);
-                        isRefreshingRef.current = false;
-                    });
-
-                touchStartX.current = null;
-                touchStartY.current = null;
-                touchStartTime.current = null;
-                return;
-            }
-
-            // Reset pull-to-refresh state if threshold not reached
-            if (isPullingRef.current) {
-                setIsPulling(false);
-                isPullingRef.current = false;
-                setPullDistance(0);
-                pullDistanceRef.current = 0;
-            }
+            // Pull-to-refresh is now handled by pulltorefreshjs library
 
             // Use improved navigation detection
             const navigation = shouldNavigateWeek(
@@ -1380,10 +1297,6 @@ export default function Timetable({
             isDraggingRef.current = false;
             setTranslateX(0);
             translateXRef.current = 0;
-            setIsPulling(false);
-            isPullingRef.current = false;
-            setPullDistance(0);
-            pullDistanceRef.current = 0;
 
             // Also reset day view state
             setDayTranslateX(0);
@@ -1802,83 +1715,7 @@ export default function Timetable({
                 </div>
             )}
 
-            {/* Pull-to-refresh indicator - overlaid above everything */}
-            {(isPulling ||
-                isRefreshing ||
-                isCompletingRefresh ||
-                isAnimatingOut) && (
-                <div
-                    className={`absolute top-0 left-0 right-0 z-50 flex justify-center items-center py-3 transition-all duration-300 ease-out ${
-                        isAnimatingOut
-                            ? 'animate-[flyOut_500ms_ease-in_forwards]'
-                            : ''
-                    }`}
-                    style={{
-                        transform: isAnimatingOut
-                            ? 'translateY(-100px)'
-                            : `translateY(${
-                                  isPulling
-                                      ? Math.max(0, pullDistance * 0.8)
-                                      : 20
-                              }px)`,
-                        opacity: isAnimatingOut
-                            ? 0
-                            : isPulling
-                            ? Math.min(1, pullDistance / refreshThreshold)
-                            : 1,
-                        transition: isAnimatingOut
-                            ? 'transform 500ms ease-in, opacity 500ms ease-in'
-                            : 'all 300ms ease-out',
-                    }}
-                >
-                    <div className="flex items-center gap-2 px-4 py-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur rounded-full shadow-lg border border-slate-200/60 dark:border-slate-600/60 text-slate-600 dark:text-slate-400">
-                        {isRefreshing ? (
-                            <>
-                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-sky-600 border-t-transparent"></div>
-                                <span className="text-sm font-medium">
-                                    Refreshing...
-                                </span>
-                            </>
-                        ) : isCompletingRefresh ? (
-                            <>
-                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-green-600 border-t-transparent"></div>
-                                <span className="text-sm font-medium">
-                                    Complete!
-                                </span>
-                            </>
-                        ) : (
-                            <>
-                                <div
-                                    className={`transition-transform duration-200 ${
-                                        pullDistance >= refreshThreshold
-                                            ? 'rotate-180'
-                                            : ''
-                                    }`}
-                                >
-                                    <svg
-                                        className="w-5 h-5"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                                        />
-                                    </svg>
-                                </div>
-                                <span className="text-sm font-medium">
-                                    {pullDistance >= refreshThreshold
-                                        ? 'Release to refresh'
-                                        : 'Pull to refresh'}
-                                </span>
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
+            {/* Pull-to-refresh is handled by pulltorefreshjs library - it adds its own UI */}
 
             {/* Unified horizontal week view (fits viewport width) */}
             {/* Sticky weekday header (separate from columns so it stays visible during vertical scroll) */}
