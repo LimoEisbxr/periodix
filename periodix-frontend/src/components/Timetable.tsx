@@ -554,16 +554,14 @@ export default function Timetable({
 
     // Reset transform when week changes (continuous band effect)
     useLayoutEffect(() => {
-        // Only reset if we have a non-zero translation (meaning we just navigated)
-        if (translateX !== 0) {
-            setTranslateX(0);
-            setIsAnimating(false);
-            isAnimatingRef.current = false;
-            setIsDragging(false);
-            isDraggingRef.current = false;
-            flingVelocityRef.current = 0;
-            lastNavigationTimeRef.current = Date.now();
-        }
+        // Always reset when weekStart changes - this ensures clean state for new week
+        setTranslateX(0);
+        setIsAnimating(false);
+        isAnimatingRef.current = false;
+        setIsDragging(false);
+        isDraggingRef.current = false;
+        flingVelocityRef.current = 0;
+        lastNavigationTimeRef.current = Date.now();
     }, [weekStart]);
 
     const hasData = !!data;

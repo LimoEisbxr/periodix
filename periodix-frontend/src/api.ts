@@ -446,6 +446,32 @@ export async function deleteUser(
     });
 }
 
+export async function adminUpdateUserDisplayName(
+    token: string,
+    userId: string,
+    displayName: string | null
+): Promise<{
+    user: {
+        id: string;
+        username: string;
+        displayName: string | null;
+        isUserManager: boolean;
+    };
+}> {
+    return api<{
+        user: {
+            id: string;
+            username: string;
+            displayName: string | null;
+            isUserManager: boolean;
+        };
+    }>(`/api/admin/users/${userId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ displayName }),
+    });
+}
+
 // User-manager management (admin only)
 export async function grantUserManagerStatus(
     token: string,
