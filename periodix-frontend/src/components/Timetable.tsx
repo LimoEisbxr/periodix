@@ -1875,10 +1875,10 @@ export default function Timetable({
             {/* Unified horizontal week view (fits viewport width) */}
             {/* Sticky weekday header (separate from columns so it stays visible during vertical scroll) */}
             <div
-                className="sticky top-0 z-30 bg-gradient-to-b from-white/85 to-white/60 dark:from-slate-900/85 dark:to-slate-900/60 backdrop-blur supports-[backdrop-filter]:backdrop-blur rounded-lg ring-1 ring-black/5 dark:ring-white/10 border border-slate-300/60 dark:border-slate-600/60 shadow-sm mb-2 px-1 sm:px-2"
+                className="sticky top-0 z-30 bg-gradient-to-b from-white/85 to-white/60 dark:from-slate-900/85 dark:to-slate-900/60 backdrop-blur supports-[backdrop-filter]:backdrop-blur mb-1"
                 style={{
-                    paddingRight: 'max(env(safe-area-inset-right), 0.25rem)',
-                    paddingLeft: 'max(env(safe-area-inset-left), 0.25rem)',
+                    paddingRight: 'env(safe-area-inset-right)',
+                    paddingLeft: 'env(safe-area-inset-left)',
                 }}
             >
                 <div
@@ -1941,7 +1941,7 @@ export default function Timetable({
                 {/* Removed extra informational text under the day header in focused mode */}
             </div>
 
-            <div className="overflow-hidden w-full">
+            <div className="overflow-hidden w-full pr-0.5 sm:pr-0">
                 {/* When focusedDay is active, render 3-panel sliding day view */}
                 {focusedDay ? (
                     <div className="flex w-full relative">
@@ -2297,8 +2297,6 @@ export default function Timetable({
                                     className="relative h-full"
                                     style={{
                                         transform: `translateX(${translateX}px)`,
-                                        marginLeft: '0.25rem',
-                                        marginRight: '0.25rem',
                                     }}
                                 >
                                     <div
@@ -2384,13 +2382,13 @@ export default function Timetable({
                                     transform: `translateX(calc(-33.333% + ${translateX}px))`,
                                     width: '300%',
                                     transition: 'none',
-                                    gap: '0.75rem',
+                                    gap: '0.25rem',
                                 }}
                             >
                                 {/* Previous Week */}
                                 <div
-                                    className="flex gap-x-1 sm:gap-x-3 relative"
-                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                    className="flex gap-x-px sm:gap-x-1 relative"
+                                    style={{ width: 'calc(33.333% - 0.17rem)' }}
                                 >
                                     {prevWeekDays.map((d) => {
                                         const key = fmtLocal(d);
@@ -2481,8 +2479,8 @@ export default function Timetable({
                                 </div>
                                 {/* Current Week */}
                                 <div
-                                    className="flex gap-x-1 sm:gap-x-3 relative"
-                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                    className="flex gap-x-px sm:gap-x-1 relative"
+                                    style={{ width: 'calc(33.333% - 0.17rem)' }}
                                 >
                                     {/* Current time line moved to parent container */}
 
@@ -2583,8 +2581,8 @@ export default function Timetable({
                                 </div>
                                 {/* Next Week */}
                                 <div
-                                    className="flex gap-x-1 sm:gap-x-3 relative"
-                                    style={{ width: 'calc(33.333% - 0.5rem)' }}
+                                    className="flex gap-x-px sm:gap-x-1 relative"
+                                    style={{ width: 'calc(33.333% - 0.17rem)' }}
                                 >
                                     {nextWeekDays.map((d) => {
                                         const key = fmtLocal(d);
