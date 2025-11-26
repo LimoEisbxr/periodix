@@ -137,7 +137,10 @@ function mountCustomScrollbar() {
     update();
 }
 
-window.addEventListener('DOMContentLoaded', mountCustomScrollbar);
+// Defer custom scrollbar setup until after initial render
+requestAnimationFrame(() => {
+    mountCustomScrollbar();
+});
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -145,11 +148,18 @@ createRoot(document.getElementById('root')!).render(
     </StrictMode>
 );
 
-// Register service worker (after initial render)
+// Register service worker after initial render (deferred)
 if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
+    // Use requestIdleCallback if available, otherwise setTimeout
+    const registerSW = () => {
         navigator.serviceWorker.register('/sw.js').catch(() => {
             // Silently ignore registration errors
         });
-    });
+    };
+    
+    if ('requestIdleCallback' in window) {
+        (window as Window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(registerSW);
+    } else {
+        setTimeout(registerSW, 1000);
+    }
 }

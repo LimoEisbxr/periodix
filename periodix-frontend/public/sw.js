@@ -1,13 +1,20 @@
-// Enhanced service worker for PWA with notification support
-const CACHE_NAME = 'periodix-shell-v2';
+// Enhanced service worker for PWA with notification support and optimized caching
+const CACHE_NAME = 'periodix-shell-v3';
+const STATIC_CACHE_NAME = 'periodix-static-v1';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest'];
+
+// Static assets that can be cached aggressively
+const STATIC_ASSETS_PATTERN = /\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|gif|ico|webp)$/i;
+
+// Cache duration for API responses (in seconds)
+const API_CACHE_TTL = 60; // 1 minute for API responses
 
 self.addEventListener('install', (event) => {
     event.waitUntil(
-        caches
-            .open(CACHE_NAME)
-            .then((cache) => cache.addAll(APP_SHELL))
-            .then(() => self.skipWaiting())
+        Promise.all([
+            caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)),
+            caches.open(STATIC_CACHE_NAME),
+        ]).then(() => self.skipWaiting())
     );
 });
 
@@ -18,7 +25,7 @@ self.addEventListener('activate', (event) => {
             .then((keys) =>
                 Promise.all(
                     keys
-                        .filter((k) => k !== CACHE_NAME)
+                        .filter((k) => k !== CACHE_NAME && k !== STATIC_CACHE_NAME)
                         .map((k) => caches.delete(k))
                 )
             )
@@ -160,46 +167,75 @@ self.addEventListener('fetch', (event) => {
     const { request } = event;
     // Only handle GET requests
     if (request.method !== 'GET') return;
-    // Network first for API, cache first for same-origin navigation & static assets
+    
     const url = new URL(request.url);
+    
+    // Network first for API, with optional fallback to cached response
     if (url.pathname.startsWith('/api/')) {
-        event.respondWith(fetch(request).catch(() => caches.match(request)));
+        event.respondWith(
+            fetch(request)
+                .then((res) => {
+                    // Don't cache non-ok responses or auth-related endpoints
+                    if (!res.ok || url.pathname.includes('/auth/')) {
+                        return res;
+                    }
+                    // Optionally cache GET API responses briefly
+                    const copy = res.clone();
+                    caches.open(CACHE_NAME).then((c) => c.put(request, copy));
+                    return res;
+                })
+                .catch(() => caches.match(request))
+        );
         return;
     }
+    
+    // For navigation requests - network first with fallback
     if (request.mode === 'navigate') {
         event.respondWith(
             fetch(request)
                 .then((res) => {
-                    // Optionally update shell cache with latest index.html
+                    // Update shell cache with latest index.html
                     const copy = res.clone();
-                    caches
-                        .open(CACHE_NAME)
-                        .then((c) => c.put('/index.html', copy));
+                    caches.open(CACHE_NAME).then((c) => c.put('/index.html', copy));
                     return res;
                 })
                 .catch(() => caches.match('/index.html'))
         );
         return;
     }
+    
+    // For static assets with hash in filename (immutable) - cache first
+    if (STATIC_ASSETS_PATTERN.test(url.pathname) && (url.pathname.includes('-') || url.pathname.includes('.'))) {
+        event.respondWith(
+            caches.match(request).then((cached) => {
+                if (cached) return cached;
+                return fetch(request).then((res) => {
+                    if (url.origin === location.origin && res.status === 200) {
+                        const clone = res.clone();
+                        caches.open(STATIC_CACHE_NAME).then((c) => c.put(request, clone));
+                    }
+                    return res;
+                });
+            })
+        );
+        return;
+    }
+    
+    // Default: stale-while-revalidate for other resources
     event.respondWith(
-        caches.match(request).then(
-            (cached) =>
-                cached ||
-                fetch(request)
-                    .then((res) => {
-                        // Optionally cache static assets (same-origin, basic request)
-                        if (
-                            url.origin === location.origin &&
-                            res.status === 200
-                        ) {
-                            const clone = res.clone();
-                            caches
-                                .open(CACHE_NAME)
-                                .then((c) => c.put(request, clone));
-                        }
-                        return res;
-                    })
-                    .catch(() => cached)
-        )
+        caches.match(request).then((cached) => {
+            const fetchPromise = fetch(request)
+                .then((res) => {
+                    if (url.origin === location.origin && res.status === 200) {
+                        const clone = res.clone();
+                        caches.open(CACHE_NAME).then((c) => c.put(request, clone));
+                    }
+                    return res;
+                })
+                .catch(() => cached);
+            
+            // Return cached version immediately, update cache in background
+            return cached || fetchPromise;
+        })
     );
 });

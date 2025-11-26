@@ -10,4 +10,28 @@ export default defineConfig({
             '/api': 'http://localhost:3001',
         },
     },
+    build: {
+        // Enable minification optimizations
+        minify: 'esbuild',
+        // Generate source maps for production debugging (can be disabled for smaller builds)
+        sourcemap: false,
+        // Target modern browsers for smaller bundle
+        target: 'es2020',
+        // Optimize chunk splitting
+        rollupOptions: {
+            output: {
+                // Manual chunk splitting for better caching
+                manualChunks: {
+                    // React core in its own chunk (rarely changes)
+                    'react-vendor': ['react', 'react-dom'],
+                },
+            },
+        },
+        // Increase chunk size warning limit (TailwindCSS can be large)
+        chunkSizeWarningLimit: 600,
+    },
+    // Optimize dependency pre-bundling
+    optimizeDeps: {
+        include: ['react', 'react-dom'],
+    },
 });

@@ -28,7 +28,7 @@ import LessonModal from './LessonModal';
 import HolidayModal from './HolidayModal';
 import TimeAxis from './TimeAxis';
 import DayColumn from './DayColumn';
-import Spinner from './Spinner';
+import TimetableSkeleton from './TimetableSkeleton';
 import {
     shouldNavigateWeek,
     applyRubberBandResistance,
@@ -1631,16 +1631,12 @@ export default function Timetable({
     );
 
     if (!data)
-        return (
-            <div className="flex items-center justify-center p-8 text-slate-400 dark:text-slate-500">
-                <Spinner size="md" />
-            </div>
-        );
+        return <TimetableSkeleton />;
 
     return (
         <div
             ref={containerRef}
-            className="relative w-full overflow-x-hidden pt-[env(safe-area-inset-top)]"
+            className="relative w-full overflow-x-hidden pt-[env(safe-area-inset-top)] animate-fade-in"
         >
             {isDeveloperModeEnabled && (
                 <div className="mb-4 flex justify-end px-2 gap-2 flex-wrap">

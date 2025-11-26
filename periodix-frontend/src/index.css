@@ -599,6 +599,10 @@ html.dark .change-highlight-mobile {
 
 /* (Removed older duplicate .animate-fade-in rule) */
 
+.animate-fade-in {
+    animation: fade-in 300ms ease-out forwards;
+}
+
 .animate-slide-up {
     animation: slide-up 200ms ease-out;
 }

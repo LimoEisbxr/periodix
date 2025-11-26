@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import Timetable from '../components/Timetable';
 import MoonIcon from '../components/MoonIcon';
-import SettingsModal from '../components/SettingsModal';
 import NotificationBell from '../components/NotificationBell';
-import NotificationPanel from '../components/NotificationPanel';
-import OnboardingModal from '../components/OnboardingModal';
-import AbsencePanel from '../components/AbsencePanel';
+
+// Lazy load heavy components that aren't needed for initial render
+const SettingsModal = lazy(() => import('../components/SettingsModal'));
+const NotificationPanel = lazy(() => import('../components/NotificationPanel'));
+const OnboardingModal = lazy(() => import('../components/OnboardingModal'));
+const AbsencePanel = lazy(() => import('../components/AbsencePanel'));
+
 import {
     API_BASE,
     getLessonColors,
@@ -2273,14 +2276,16 @@ export default function Dashboard({
                 onNotificationUpdate={loadNotifications}
             />
 
-            <OnboardingModal
-                isOpen={isOnboardingOpen}
-                onClose={() => setIsOnboardingOpen(false)}
-                onComplete={handleOnboardingComplete}
-                isSettingsModalOpen={isSettingsModalOpen}
-                onOpenSettings={() => setIsSettingsModalOpen(true)}
-                isLessonModalOpen={isLessonModalOpen}
-            />
+            <Suspense fallback={null}>
+                <OnboardingModal
+                    isOpen={isOnboardingOpen}
+                    onClose={() => setIsOnboardingOpen(false)}
+                    onComplete={handleOnboardingComplete}
+                    isSettingsModalOpen={isSettingsModalOpen}
+                    onOpenSettings={() => setIsSettingsModalOpen(true)}
+                    isLessonModalOpen={isLessonModalOpen}
+                />
+            </Suspense>
         </div>
     );
 }
