@@ -476,6 +476,14 @@ export default function Timetable({
         weekStartRef.current = weekStart;
     }, [weekStart]);
 
+    // Refs to expose navigation functions for debug buttons
+    const triggerNavigationRef = useRef<
+        ((direction: 'prev' | 'next') => void) | null
+    >(null);
+    const triggerDayNavigationRef = useRef<
+        ((direction: 'prev' | 'next') => void) | null
+    >(null);
+
     // Lifecycle reset: when page/tab is hidden or app backgrounded (PWA iOS), ensure we reset drag/animation state
     const [forceGestureReattach, setForceGestureReattach] = useState(0);
     useEffect(() => {
@@ -1260,12 +1268,23 @@ export default function Timetable({
         });
         el.addEventListener('wheel', handleWheel, { passive: false });
 
+        // Expose navigation functions for debug buttons
+        triggerNavigationRef.current = (direction: 'prev' | 'next') => {
+            performNavigation(direction, 1500); // Use moderate speed for button-triggered navigation
+        };
+        triggerDayNavigationRef.current = (direction: 'prev' | 'next') => {
+            performDayNavigation(direction, 1500);
+        };
+
         return () => {
             el.removeEventListener('touchstart', handleTouchStart);
             el.removeEventListener('touchmove', handleTouchMove);
             el.removeEventListener('touchend', handleTouchEnd);
             el.removeEventListener('touchcancel', handleTouchCancel);
             el.removeEventListener('wheel', handleWheel);
+            // Clear navigation refs on cleanup
+            triggerNavigationRef.current = null;
+            triggerDayNavigationRef.current = null;
             // Use the captured ref value for cleanup
             if (currentAnimationRef) cancelAnimationFrame(currentAnimationRef);
             if (isDebugRef.current) {
@@ -1624,7 +1643,74 @@ export default function Timetable({
             className="relative w-full overflow-x-hidden pt-[env(safe-area-inset-top)]"
         >
             {isDeveloperModeEnabled && (
-                <div className="mb-4 flex justify-end px-2">
+                <div className="mb-4 flex justify-end px-2 gap-2 flex-wrap">
+                    {/* Navigation debug buttons - only shown when developer mode is active */}
+                    {isDeveloperMode && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (focusedDay) {
+                                        triggerDayNavigationRef.current?.(
+                                            'prev'
+                                        );
+                                    } else {
+                                        triggerNavigationRef.current?.('prev');
+                                    }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 shadow ring-1 ring-slate-900/10 dark:ring-white/10 bg-emerald-600 text-white hover:bg-emerald-700 transition"
+                                aria-label="Navigate to previous"
+                            >
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M15 19l-7-7 7-7"
+                                    />
+                                </svg>
+                                <span className="text-sm font-medium">
+                                    Prev
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (focusedDay) {
+                                        triggerDayNavigationRef.current?.(
+                                            'next'
+                                        );
+                                    } else {
+                                        triggerNavigationRef.current?.('next');
+                                    }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 shadow ring-1 ring-slate-900/10 dark:ring-white/10 bg-emerald-600 text-white hover:bg-emerald-700 transition"
+                                aria-label="Navigate to next"
+                            >
+                                <span className="text-sm font-medium">
+                                    Next
+                                </span>
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M9 5l7 7-7 7"
+                                    />
+                                </svg>
+                            </button>
+                        </>
+                    )}
                     <button
                         type="button"
                         onClick={() => setIsDeveloperMode((v) => !v)}

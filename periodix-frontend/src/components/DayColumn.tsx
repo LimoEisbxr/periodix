@@ -5,7 +5,11 @@ import EllipsisIcon from './EllipsisIcon';
 import type { Lesson, LessonColors, Holiday } from '../types';
 import { fmtHM, untisToMinutes } from '../utils/dates';
 import { clamp } from '../utils/dates';
-import { generateGradient, getDefaultGradient, gradientToSmoothCss } from '../utils/colors';
+import {
+    generateGradient,
+    getDefaultGradient,
+    gradientToSmoothCss,
+} from '../utils/colors';
 import { extractSubjectType } from '../utils/subjectUtils';
 import { MOBILE_MEDIA_QUERY } from '../utils/responsive';
 import { hasLessonChanges, getRoomDisplayText } from '../utils/lessonChanges';
@@ -175,10 +179,16 @@ const DayColumn: FC<DayColumnProps> = ({
     });
     const [measuredWidth, setMeasuredWidth] = useState<number>(estimatedWidth);
 
+    // Track stable width to prevent layout thrashing during scrolling
+    // Only update measuredWidth if the change is significant (> 5px threshold)
+    const stableWidthRef = useRef<number>(estimatedWidth);
+    const WIDTH_STABILITY_THRESHOLD = 5; // px - ignore width changes smaller than this
+
     // Update measuredWidth if estimatedWidth changes significantly and we haven't measured yet
     useEffect(() => {
         if (measuredWidth === 0 && estimatedWidth > 0) {
             setMeasuredWidth(estimatedWidth);
+            stableWidthRef.current = estimatedWidth;
         }
     }, [estimatedWidth, measuredWidth]);
 
@@ -189,7 +199,15 @@ const DayColumn: FC<DayColumnProps> = ({
         const compute = () => {
             try {
                 const w = el.getBoundingClientRect().width;
-                setMeasuredWidth(w);
+                // Only update if the change exceeds the stability threshold
+                // This prevents layout thrashing during vertical scrolling
+                if (
+                    Math.abs(w - stableWidthRef.current) >
+                    WIDTH_STABILITY_THRESHOLD
+                ) {
+                    stableWidthRef.current = w;
+                    setMeasuredWidth(w);
+                }
                 setCollapseNarrow((prev) => {
                     if (w < COLLAPSE_ENTER_WIDTH) return true;
                     if (w > COLLAPSE_EXIT_WIDTH) return false;
@@ -289,8 +307,9 @@ const DayColumn: FC<DayColumnProps> = ({
 
     // Slicing logic for mobile: split lessons into atomic segments to allow partial visibility
     const slicedItems = useMemo(() => {
-        // If not mobile AND not collapsed narrow, just map to simple objects
-        if (!isMobile && !collapseNarrow) {
+        // If not mobile AND (not collapsed narrow OR in day view), just map to simple objects
+        // In day view, we always want full desktop behavior regardless of collapseNarrow state
+        if (!isMobile && (!collapseNarrow || isDayView)) {
             return items.map((l) => ({
                 l,
                 startMin: clamp(
@@ -347,7 +366,7 @@ const DayColumn: FC<DayColumnProps> = ({
             }
         });
         return result;
-    }, [items, isMobile, collapseNarrow, START_MIN, END_MIN]);
+    }, [items, isMobile, collapseNarrow, isDayView, START_MIN, END_MIN]);
 
     const blocks: Block[] = (() => {
         const evs: ClusterBlock[] = slicedItems
@@ -422,18 +441,20 @@ const DayColumn: FC<DayColumnProps> = ({
     // Track the last bottom pixel per visual column signature to enforce gaps
     const lastBottomByCol: Record<string, number> = {};
 
-    // Group blocks by exam for outline rendering
+    // Group blocks by exam for outline rendering (skip for class timetables)
     const examGroups = new Map<number, Block[]>();
-    blocks.forEach((b) => {
-        if (b.l.exams && b.l.exams.length > 0) {
-            b.l.exams.forEach((ex) => {
-                if (!examGroups.has(ex.id)) {
-                    examGroups.set(ex.id, []);
-                }
-                examGroups.get(ex.id)?.push(b);
-            });
-        }
-    });
+    if (!isClassTimetable) {
+        blocks.forEach((b) => {
+            if (b.l.exams && b.l.exams.length > 0) {
+                b.l.exams.forEach((ex) => {
+                    if (!examGroups.has(ex.id)) {
+                        examGroups.set(ex.id, []);
+                    }
+                    examGroups.get(ex.id)?.push(b);
+                });
+            }
+        });
+    }
 
     const holiday = holidays.find((h) => {
         // Parse yyyymmdd number to Date
@@ -621,95 +642,125 @@ const DayColumn: FC<DayColumnProps> = ({
                     }px, rgba(100,116,139,0.10) ${gridSlotMinutes * SCALE}px)`,
                 }}
             />
-            {/* Exam Outlines */}
-            {Array.from(examGroups.entries()).map(([examId, groupBlocks]) => {
-                if (groupBlocks.length === 0) return null;
-                const firstBlock = groupBlocks[0];
-                const exam = firstBlock.l.exams?.find((e) => e.id === examId);
-                if (!exam) return null;
-
-                // Use exam times for vertical span
-                const startMin = clamp(
-                    untisToMinutes(exam.startTime),
-                    START_MIN,
-                    END_MIN
-                );
-                const endMin = Math.max(
-                    startMin,
-                    clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN)
-                );
-
-                // Use first block for horizontal positioning
-                const b = firstBlock;
-                const GAP_PCT = 1.5;
-                const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
-                const MOBILE_MIN_COLUMN_WIDTH = 140;
-
-                let mobileVisibleCols = 1;
-                if (isMobile && b.colCount > 1) {
-                    const maxFit = Math.max(
-                        1,
-                        Math.floor(
-                            (measuredWidth + gapPx) /
-                                (MOBILE_MIN_COLUMN_WIDTH + gapPx)
-                        )
+            {/* Exam Outlines - render one outline per block that has an exam */}
+            {Array.from(examGroups.entries()).flatMap(
+                ([examId, groupBlocks]) => {
+                    if (groupBlocks.length === 0) return [];
+                    const firstBlock = groupBlocks[0];
+                    const exam = firstBlock.l.exams?.find(
+                        (e) => e.id === examId
                     );
-                    mobileVisibleCols = Math.min(b.colCount, maxFit);
-                }
+                    if (!exam) return [];
 
-                // Hide if the column is hidden (same logic as blocks)
-                if (b.colCount > 1) {
-                    if (!isMobile && collapseNarrow) {
-                        if (b.colIndex !== 0) return null;
-                    } else if (isMobile) {
-                        if (b.colIndex >= mobileVisibleCols) return null;
-                    }
-                }
+                    // Use exam times for vertical span (same for all blocks with this exam)
+                    const examStartMin = clamp(
+                        untisToMinutes(exam.startTime),
+                        START_MIN,
+                        END_MIN
+                    );
+                    const examEndMin = Math.max(
+                        examStartMin,
+                        clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN)
+                    );
 
-                let widthPct = (100 - GAP_PCT * (b.colCount - 1)) / b.colCount;
-                let leftPct = b.colIndex * (widthPct + GAP_PCT);
-                if (b.colCount > 1) {
-                    if (!isMobile && collapseNarrow) {
-                        widthPct = 100;
-                        leftPct = 0;
-                    } else if (isMobile) {
-                        if (mobileVisibleCols <= 1) {
+                    const GAP_PCT = 1.5;
+                    // In day view, use estimatedWidth directly as it's more reliable than measuredWidth
+                    const examEffectiveWidth =
+                        isDayView && estimatedWidth > 0
+                            ? estimatedWidth
+                            : measuredWidth;
+                    const gapPx = Math.max(
+                        0,
+                        examEffectiveWidth * (GAP_PCT / 100)
+                    );
+                    const MOBILE_MIN_COLUMN_WIDTH = 140;
+                    const DESKTOP_MIN_COLUMN_WIDTH = isDayView ? 25 : 80;
+                    const DESKTOP_MAX_COLUMNS = isDayView ? 12 : 8;
+
+                    const isCollapsedToSingle =
+                        !isMobile && collapseNarrow && !isDayView;
+
+                    // Render one outline per block (each block may have different colCount)
+                    return groupBlocks.map((b) => {
+                        const colCount = b.colCount;
+                        const colIndex = b.colIndex;
+
+                        let visibleCols = colCount;
+                        if (isMobile && colCount > 1) {
+                            const maxFit = Math.max(
+                                1,
+                                Math.floor(
+                                    (examEffectiveWidth + gapPx) /
+                                        (MOBILE_MIN_COLUMN_WIDTH + gapPx)
+                                )
+                            );
+                            visibleCols = Math.min(colCount, maxFit);
+                        } else if (!isMobile && colCount > 1) {
+                            const maxFit = Math.max(
+                                1,
+                                Math.floor(
+                                    (examEffectiveWidth + gapPx) /
+                                        (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
+                                )
+                            );
+                            const cappedFit = Math.min(
+                                DESKTOP_MAX_COLUMNS,
+                                maxFit
+                            );
+                            visibleCols = Math.min(colCount, cappedFit);
+                        }
+
+                        // Skip if this column is not visible
+                        if (isCollapsedToSingle) {
+                            if (colIndex > 0) return null;
+                        } else if (colIndex >= visibleCols) {
+                            return null;
+                        }
+
+                        // Calculate width/position for this specific block
+                        let widthPct: number;
+                        let leftPct: number;
+
+                        if (isCollapsedToSingle || visibleCols <= 1) {
                             widthPct = 100;
                             leftPct = 0;
                         } else {
-                            const visibleCols = mobileVisibleCols;
-                            widthPct =
+                            const singleColWidth =
                                 (100 - GAP_PCT * (visibleCols - 1)) /
                                 visibleCols;
-                            // We are showing the first N columns (0 to visibleCols-1)
-                            // So visibleIndex is just colIndex
-                            leftPct = b.colIndex * (widthPct + GAP_PCT);
+                            leftPct = colIndex * (singleColWidth + GAP_PCT);
+                            widthPct = singleColWidth;
                         }
-                    }
+
+                        const PAD_TOP = isMobile ? 2 : 4;
+                        const PAD_BOTTOM = isMobile ? 2 : 4;
+                        const startPxRaw =
+                            (examStartMin - START_MIN) * SCALE + headerPx;
+                        const endPxRaw =
+                            (examEndMin - START_MIN) * SCALE + headerPx;
+                        const topPx = Math.round(startPxRaw) + PAD_TOP;
+                        const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
+                        const heightPx = Math.max(
+                            isMobile ? 30 : 14,
+                            endPx - topPx
+                        );
+
+                        return (
+                            <div
+                                key={`exam-${examId}-${b.l.id}-${colIndex}`}
+                                className="absolute pointer-events-none z-10 rounded-xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
+                                style={{
+                                    top: topPx,
+                                    height: heightPx,
+                                    left: `${leftPct}%`,
+                                    width: `${widthPct}%`,
+                                    borderWidth: '3px',
+                                }}
+                            />
+                        );
+                    });
                 }
-
-                const PAD_TOP = isMobile ? 2 : 4;
-                const PAD_BOTTOM = isMobile ? 2 : 4;
-                const startPxRaw = (startMin - START_MIN) * SCALE + headerPx;
-                const endPxRaw = (endMin - START_MIN) * SCALE + headerPx;
-                const topPx = Math.round(startPxRaw) + PAD_TOP;
-                const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
-                const heightPx = Math.max(isMobile ? 30 : 14, endPx - topPx);
-
-                return (
-                    <div
-                        key={`exam-${examId}`}
-                        className="absolute pointer-events-none z-10 rounded-2xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
-                        style={{
-                            top: topPx,
-                            height: heightPx,
-                            left: `${leftPct}%`,
-                            width: `${widthPct}%`,
-                            borderWidth: '3px',
-                        }}
-                    />
-                );
-            })}
+            )}
             {blocks
                 // render in top order to make bottom tracking deterministic
                 // Sort by start time asc, then duration desc (Longer first) so Shorter renders on top (z-index)
@@ -722,7 +773,14 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Narrow (measured) non-mobile: collapse to 1 (rightmost)
                     // Mobile: render as many as reasonably fit at a minimum width; otherwise collapse to 1
                     const GAP_PCT = 0.5; // Minimal gap for nearly seamless side-by-side lessons
-                    const gapPx = Math.max(0, measuredWidth * (GAP_PCT / 100));
+                    // In day view, use estimatedWidth directly as it's more reliable than measuredWidth
+                    // which can be stale after swipe transitions. measuredWidth may not update properly
+                    // when the component re-renders with new data after day navigation.
+                    const effectiveWidth =
+                        isDayView && estimatedWidth > 0
+                            ? estimatedWidth
+                            : measuredWidth;
+                    const gapPx = Math.max(0, effectiveWidth * (GAP_PCT / 100));
                     const MOBILE_MIN_COLUMN_WIDTH = 60; // px - min per-lesson width on mobile to allow side-by-side
                     // In day view, allow more columns with smaller min width; in week view use larger min width to show fewer columns
                     const DESKTOP_MIN_COLUMN_WIDTH = isDayView ? 25 : 80; // Larger min width in week view = fewer columns
@@ -741,7 +799,7 @@ const DayColumn: FC<DayColumnProps> = ({
                             const maxFit = Math.max(
                                 1,
                                 Math.floor(
-                                    (measuredWidth + gapPx) /
+                                    (effectiveWidth + gapPx) /
                                         (MOBILE_MIN_COLUMN_WIDTH + gapPx)
                                 )
                             );
@@ -753,7 +811,7 @@ const DayColumn: FC<DayColumnProps> = ({
                             const maxFit = Math.max(
                                 1,
                                 Math.floor(
-                                    (measuredWidth + gapPx) /
+                                    (effectiveWidth + gapPx) /
                                         (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
                                 )
                             );
@@ -770,13 +828,18 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     const isCollapsed = visibleCols < b.colCount; // Only collapsed if actual lessons are hidden
                     const isMobileCollapsed = isMobile && isCollapsed; // Keep for mobile-specific styling if needed
+                    // In day view mode, don't apply collapseNarrow since we have full width available
+                    // (similar to mobile behavior which doesn't use collapseNarrow)
                     const isDesktopCollapsed =
-                        !isMobile && (collapseNarrow || isCollapsed);
+                        !isMobile &&
+                        !isDayView &&
+                        (collapseNarrow || isCollapsed);
 
                     // Hide non-visible columns depending on state
                     // Note: we check against b.colCount (actual lessons) not effectiveColCount (layout slots)
                     if (b.colCount > 1) {
-                        if (!isMobile && collapseNarrow) {
+                        // In day view, skip collapseNarrow check - we have enough space for side-by-side
+                        if (!isMobile && collapseNarrow && !isDayView) {
                             // Show the first column (Highest Priority)
                             if (b.colIndex !== 0) return null;
                         } else if (b.colIndex >= visibleCols) {
@@ -836,7 +899,8 @@ const DayColumn: FC<DayColumnProps> = ({
                         (100 - GAP_PCT * (layoutColCount - 1)) / layoutColCount;
                     let leftPct = b.colIndex * (widthPct + GAP_PCT);
                     if (layoutColCount > 1) {
-                        if (!isMobile && collapseNarrow) {
+                        // In day view, skip collapseNarrow check - we have enough space for side-by-side
+                        if (!isMobile && collapseNarrow && !isDayView) {
                             widthPct = 100;
                             leftPct = 0;
                         } else if (isCollapsed) {
@@ -1032,7 +1096,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     return (
                         <div
                             key={`${l.id}${b.keySuffix || ''}`}
-                            className={`timetable-lesson absolute rounded-2xl p-2.5 sm:p-3 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
+                            className={`timetable-lesson absolute rounded-xl p-2.5 sm:p-3 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-[3px] border-rose-600 dark:border-rose-500'
                                     : irregular
@@ -1045,7 +1109,9 @@ const DayColumn: FC<DayColumnProps> = ({
                                 left: `${leftPct}%`,
                                 width: `${widthPct}%`,
                                 background: statusOverlay
-                                    ? `${statusOverlay}, ${gradientToSmoothCss(gradient)}`
+                                    ? `${statusOverlay}, ${gradientToSmoothCss(
+                                          gradient
+                                      )}`
                                     : gradientToSmoothCss(gradient),
                                 // Larger invisible hit target for touch
                                 paddingTop: isMobile ? 4 : undefined,
@@ -1206,7 +1272,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                             </svg>
                                         </div>
                                     )}
-                                    {l.exams && l.exams.length > 0 && (
+                                    {!isClassTimetable && l.exams && l.exams.length > 0 && (
                                         <div className="w-3 h-3 bg-red-400 dark:bg-red-500 rounded-full flex items-center justify-center shadow-sm">
                                             <svg
                                                 className="w-2 h-2 text-white"
@@ -1283,7 +1349,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                         const hasInfo = !!l.info;
                                         const hasLstext = !!l.lstext;
                                         const hasExams =
-                                            l.exams && l.exams.length > 0;
+                                            !isClassTimetable && l.exams && l.exams.length > 0;
                                         const informationCount = [
                                             hasHomework,
                                             hasInfo,
@@ -1687,6 +1753,8 @@ const WRAP_EXIT_SLACK = 8; // Larger surplus required to unwrap to avoid oscilla
 // Additional column-based heuristic: even if intrinsic fits, force vertical when the whole column is narrow
 const FORCE_WRAP_COLUMN_WIDTH = 180; // px - below this force vertical layout
 const FORCE_UNWRAP_COLUMN_WIDTH = 190; // px - need to exceed this to allow reverting to single line
+// Debounce delay to prevent flickering during scroll
+const WRAP_STATE_DEBOUNCE_MS = 150;
 
 const ResponsiveTimeFrame: FC<{
     startMin: number;
@@ -1700,7 +1768,11 @@ const ResponsiveTimeFrame: FC<{
     minHeightWhenWrapped?: number;
 }> = ({ startMin, endMin, cancelled = false }) => {
     const ref = useRef<HTMLDivElement | null>(null);
-    const [wrapVertical, setWrapVertical] = useState(false);
+    // Initialize to true (hidden) to prevent flash on mount - will show if there's space after measurement
+    const [wrapVertical, setWrapVertical] = useState(true);
+    // Track the stable wrapped state to prevent flickering
+    const stableWrappedRef = useRef(true);
+    const debounceTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
         const timeEl = ref.current;
@@ -1727,9 +1799,8 @@ const ResponsiveTimeFrame: FC<{
         document.body.appendChild(meas);
 
         let frame = 0;
-        let wrapped = false;
 
-        const compute = () => {
+        const compute = (immediate = false) => {
             try {
                 const intrinsic =
                     meas.getBoundingClientRect().width ||
@@ -1746,30 +1817,56 @@ const ResponsiveTimeFrame: FC<{
                     columnWidth - padLeft - padRight - 30
                 );
 
-                // Column width based forced state overrides intrinsic logic (with hysteresis)
-                if (!wrapped && columnWidth < FORCE_WRAP_COLUMN_WIDTH) {
-                    wrapped = true;
-                    setWrapVertical(true);
-                    return;
-                }
-                if (wrapped && columnWidth > FORCE_UNWRAP_COLUMN_WIDTH) {
-                    // Don't early return; allow intrinsic logic to potentially keep it wrapped if still too tight
-                }
+                let shouldWrap = stableWrappedRef.current;
 
-                if (!wrapped) {
+                // Column width based forced state overrides intrinsic logic (with hysteresis)
+                if (
+                    !stableWrappedRef.current &&
+                    columnWidth < FORCE_WRAP_COLUMN_WIDTH
+                ) {
+                    shouldWrap = true;
+                } else if (
+                    stableWrappedRef.current &&
+                    columnWidth > FORCE_UNWRAP_COLUMN_WIDTH
+                ) {
+                    // Check if we should unwrap
+                    if (available - WRAP_EXIT_SLACK > intrinsic) {
+                        shouldWrap = false;
+                    }
+                } else if (!stableWrappedRef.current) {
                     // Wrap if after adding enter slack we still cannot fit intrinsic width
                     if (available + WRAP_ENTER_SLACK < intrinsic) {
-                        wrapped = true;
-                        setWrapVertical(true);
+                        shouldWrap = true;
                     }
                 } else {
-                    // Unwrap only with comfortable surplus + column wide enough
+                    // Currently wrapped - unwrap only with comfortable surplus + column wide enough
                     if (
                         available - WRAP_EXIT_SLACK > intrinsic &&
                         columnWidth > FORCE_UNWRAP_COLUMN_WIDTH
                     ) {
-                        wrapped = false;
-                        setWrapVertical(false);
+                        shouldWrap = false;
+                    }
+                }
+
+                // Only update state if it changed
+                if (shouldWrap !== stableWrappedRef.current) {
+                    // Clear any pending debounce
+                    if (debounceTimerRef.current !== null) {
+                        clearTimeout(debounceTimerRef.current);
+                        debounceTimerRef.current = null;
+                    }
+
+                    if (immediate) {
+                        // Apply immediately (for initial render)
+                        stableWrappedRef.current = shouldWrap;
+                        setWrapVertical(shouldWrap);
+                    } else {
+                        // Debounce to prevent flickering during scroll
+                        debounceTimerRef.current = window.setTimeout(() => {
+                            stableWrappedRef.current = shouldWrap;
+                            setWrapVertical(shouldWrap);
+                            debounceTimerRef.current = null;
+                        }, WRAP_STATE_DEBOUNCE_MS);
                     }
                 }
             } catch {
@@ -1777,27 +1874,32 @@ const ResponsiveTimeFrame: FC<{
             }
         };
 
-        // Initial after layout settle
+        // Initial computation - apply immediately without debounce
         frame = requestAnimationFrame(() => {
-            frame = requestAnimationFrame(compute);
+            frame = requestAnimationFrame(() => compute(true));
         });
 
-        const ro = new ResizeObserver(compute);
+        const handleResize = () => compute(false);
+
+        const ro = new ResizeObserver(handleResize);
         try {
             ro.observe(lessonEl);
         } catch {
             /* ignore */
         }
-        window.addEventListener('resize', compute);
-        window.addEventListener('orientationchange', compute);
-        document.addEventListener('visibilitychange', compute);
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleResize);
+        document.addEventListener('visibilitychange', handleResize);
 
         return () => {
             cancelAnimationFrame(frame);
+            if (debounceTimerRef.current !== null) {
+                clearTimeout(debounceTimerRef.current);
+            }
             ro.disconnect();
-            window.removeEventListener('resize', compute);
-            window.removeEventListener('orientationchange', compute);
-            document.removeEventListener('visibilitychange', compute);
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('orientationchange', handleResize);
+            document.removeEventListener('visibilitychange', handleResize);
             meas.remove();
         };
     }, [startMin, endMin]);

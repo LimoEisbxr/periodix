@@ -2135,6 +2135,7 @@ export async function getClassTimetable(args: {
             );
         }
 
+        // Class timetable does not include exams (exams are user-specific)
         const payload = Array.isArray(lessonsData) ? lessonsData : [];
         const record = await storeClassTimetableRecord({
             classId: resolvedClassId,
