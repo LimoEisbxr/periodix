@@ -642,17 +642,17 @@ const DayColumn: FC<DayColumnProps> = ({
                     }px, rgba(100,116,139,0.10) ${gridSlotMinutes * SCALE}px)`,
                 }}
             />
-            {/* Exam Outlines - render one outline per block that has an exam */}
-            {Array.from(examGroups.entries()).flatMap(
+            {/* Exam Outlines - render one outline per exam (not per block) */}
+            {Array.from(examGroups.entries()).map(
                 ([examId, groupBlocks]) => {
-                    if (groupBlocks.length === 0) return [];
+                    if (groupBlocks.length === 0) return null;
                     const firstBlock = groupBlocks[0];
                     const exam = firstBlock.l.exams?.find(
                         (e) => e.id === examId
                     );
-                    if (!exam) return [];
+                    if (!exam) return null;
 
-                    // Use exam times for vertical span (same for all blocks with this exam)
+                    // Use exam times for vertical span
                     const examStartMin = clamp(
                         untisToMinutes(exam.startTime),
                         START_MIN,
@@ -680,85 +680,84 @@ const DayColumn: FC<DayColumnProps> = ({
                     const isCollapsedToSingle =
                         !isMobile && collapseNarrow && !isDayView;
 
-                    // Render one outline per block (each block may have different colCount)
-                    return groupBlocks.map((b) => {
-                        const colCount = b.colCount;
-                        const colIndex = b.colIndex;
+                    // Use the first block's column info for positioning
+                    // All blocks with the same exam should be in the same column position
+                    const colCount = firstBlock.colCount;
+                    const colIndex = firstBlock.colIndex;
 
-                        let visibleCols = colCount;
-                        if (isMobile && colCount > 1) {
-                            const maxFit = Math.max(
-                                1,
-                                Math.floor(
-                                    (examEffectiveWidth + gapPx) /
-                                        (MOBILE_MIN_COLUMN_WIDTH + gapPx)
-                                )
-                            );
-                            visibleCols = Math.min(colCount, maxFit);
-                        } else if (!isMobile && colCount > 1) {
-                            const maxFit = Math.max(
-                                1,
-                                Math.floor(
-                                    (examEffectiveWidth + gapPx) /
-                                        (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
-                                )
-                            );
-                            const cappedFit = Math.min(
-                                DESKTOP_MAX_COLUMNS,
-                                maxFit
-                            );
-                            visibleCols = Math.min(colCount, cappedFit);
-                        }
-
-                        // Skip if this column is not visible
-                        if (isCollapsedToSingle) {
-                            if (colIndex > 0) return null;
-                        } else if (colIndex >= visibleCols) {
-                            return null;
-                        }
-
-                        // Calculate width/position for this specific block
-                        let widthPct: number;
-                        let leftPct: number;
-
-                        if (isCollapsedToSingle || visibleCols <= 1) {
-                            widthPct = 100;
-                            leftPct = 0;
-                        } else {
-                            const singleColWidth =
-                                (100 - GAP_PCT * (visibleCols - 1)) /
-                                visibleCols;
-                            leftPct = colIndex * (singleColWidth + GAP_PCT);
-                            widthPct = singleColWidth;
-                        }
-
-                        const PAD_TOP = isMobile ? 2 : 4;
-                        const PAD_BOTTOM = isMobile ? 2 : 4;
-                        const startPxRaw =
-                            (examStartMin - START_MIN) * SCALE + headerPx;
-                        const endPxRaw =
-                            (examEndMin - START_MIN) * SCALE + headerPx;
-                        const topPx = Math.round(startPxRaw) + PAD_TOP;
-                        const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
-                        const heightPx = Math.max(
-                            isMobile ? 30 : 14,
-                            endPx - topPx
+                    let visibleCols = colCount;
+                    if (isMobile && colCount > 1) {
+                        const maxFit = Math.max(
+                            1,
+                            Math.floor(
+                                (examEffectiveWidth + gapPx) /
+                                    (MOBILE_MIN_COLUMN_WIDTH + gapPx)
+                            )
                         );
-
-                        return (
-                            <div
-                                key={`exam-${examId}-${b.l.id}-${colIndex}`}
-                                className="absolute pointer-events-none z-10 rounded-xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
-                                style={{
-                                    top: topPx,
-                                    height: heightPx,
-                                    left: `${leftPct}%`,
-                                    width: `${widthPct}%`,
-                                    borderWidth: '3px',
-                                }}
-                            />
+                        visibleCols = Math.min(colCount, maxFit);
+                    } else if (!isMobile && colCount > 1) {
+                        const maxFit = Math.max(
+                            1,
+                            Math.floor(
+                                (examEffectiveWidth + gapPx) /
+                                    (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
+                            )
                         );
-                    });
+                        const cappedFit = Math.min(
+                            DESKTOP_MAX_COLUMNS,
+                            maxFit
+                        );
+                        visibleCols = Math.min(colCount, cappedFit);
+                    }
+
+                    // Skip if this column is not visible
+                    if (isCollapsedToSingle) {
+                        if (colIndex > 0) return null;
+                    } else if (colIndex >= visibleCols) {
+                        return null;
+                    }
+
+                    // Calculate width/position
+                    let widthPct: number;
+                    let leftPct: number;
+
+                    if (isCollapsedToSingle || visibleCols <= 1) {
+                        widthPct = 100;
+                        leftPct = 0;
+                    } else {
+                        const singleColWidth =
+                            (100 - GAP_PCT * (visibleCols - 1)) /
+                            visibleCols;
+                        leftPct = colIndex * (singleColWidth + GAP_PCT);
+                        widthPct = singleColWidth;
+                    }
+
+                    const PAD_TOP = isMobile ? 2 : 4;
+                    const PAD_BOTTOM = isMobile ? 2 : 4;
+                    const startPxRaw =
+                        (examStartMin - START_MIN) * SCALE + headerPx;
+                    const endPxRaw =
+                        (examEndMin - START_MIN) * SCALE + headerPx;
+                    const topPx = Math.round(startPxRaw) + PAD_TOP;
+                    const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
+                    const heightPx = Math.max(
+                        isMobile ? 30 : 14,
+                        endPx - topPx
+                    );
+
+                    return (
+                        <div
+                            key={`exam-${examId}`}
+                            className="absolute pointer-events-none z-10 rounded-xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
+                            style={{
+                                top: topPx,
+                                height: heightPx,
+                                left: `${leftPct}%`,
+                                width: `${widthPct}%`,
+                                borderWidth: '3px',
+                            }}
+                        />
+                    );
                 }
             )}
             {blocks
