@@ -1,10 +1,22 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { prisma } from '../store/prisma.js';
 import { WHITELIST_ENABLED } from '../server/config.js';
 import { notificationService } from '../services/notificationService.js';
 
 const router = Router();
+
+// Rate limit for access requests to prevent spam
+const accessRequestLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 5, // limit each IP to 5 requests per window
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: {
+        error: 'Too many access requests. Please try again later.',
+    },
+});
 
 const createAccessRequestSchema = z.object({
     username: z.string().trim().min(1).max(100),
@@ -12,7 +24,7 @@ const createAccessRequestSchema = z.object({
 });
 
 // Create an access request
-router.post('/', async (req, res) => {
+router.post('/', accessRequestLimiter, async (req, res) => {
     // Only allow access requests when whitelist is enabled
     if (!WHITELIST_ENABLED) {
         return res

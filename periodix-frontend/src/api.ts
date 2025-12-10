@@ -812,7 +812,9 @@ export type AnalyticsDetailMetric =
     | 'timetable_views_today'
     | 'searches_today'
     | 'new_users_today'
-    | 'session_duration_top';
+    | 'session_duration_top'
+    | 'total_users'
+    | 'retention';
 export interface AnalyticsDetailItem {
     userId: string;
     username: string;

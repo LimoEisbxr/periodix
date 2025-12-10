@@ -15,6 +15,9 @@ export function UserInsightModal({ userId, onClose, token }: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [insight, setInsight] = useState<UserInsightSummary | null>(null);
+    const [activeTab, setActiveTab] = useState<
+        'overview' | 'features' | 'activity'
+    >('overview');
 
     const load = () => {
         if (!userId) return;
@@ -22,28 +25,24 @@ export function UserInsightModal({ userId, onClose, token }: Props) {
         setLoading(true);
         setError(null);
         setInsight(null);
+        setActiveTab('overview');
         (async () => {
             try {
                 await trackActivity(token, 'view_user_insight', {
                     targetUserId: userId,
                 });
                 const res = await getUserInsight(token, userId);
-                console.debug('[UserInsightModal] fetched insight', res);
                 if (!res || !res.insight)
                     throw new Error('No insight data returned');
                 if (!cancelled) setInsight(res.insight);
             } catch (e) {
                 if (!cancelled) {
-                    console.error('[UserInsightModal] load failed', e);
                     const msg =
                         e instanceof Error
                             ? e.message
                             : 'Failed to load insight';
-                    // Friendlier translation for common permission errors
                     if (/401|403/.test(msg)) {
-                        setError(
-                            'Not authorized to view user insights. (Admin or user-manager required)'
-                        );
+                        setError('Not authorized to view insights');
                     } else {
                         setError(msg);
                     }
@@ -56,6 +55,7 @@ export function UserInsightModal({ userId, onClose, token }: Props) {
             cancelled = true;
         };
     };
+
     useEffect(() => {
         const cleanup = load();
         return cleanup;
@@ -65,274 +65,322 @@ export function UserInsightModal({ userId, onClose, token }: Props) {
     if (!userId) return null;
 
     return (
-        <div
-            className="fixed inset-0 z-[70] flex items-start justify-center p-4 md:p-6 pt-16 md:pt-20"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="user-insight-title"
-        >
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
+            {/* Backdrop */}
             <div
-                className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                 onClick={onClose}
             />
-            <div className="relative z-10 w-full max-w-3xl mx-auto mt-0">
-                <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-xl shadow-2xl border border-slate-200/80 dark:border-slate-700 flex flex-col max-h-[86vh] w-full overflow-hidden">
-                    <div className="p-4 sm:p-5 border-b border-slate-200/70 dark:border-slate-700/70 flex items-center justify-between flex-shrink-0 w-full">
-                        <h3
-                            id="user-insight-title"
-                            className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2"
-                        >
-                            <span className="text-base leading-none">
-                                👤 User Insights
-                            </span>
-                            {insight && (
-                                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                    {insight.username}
-                                </span>
-                            )}
-                        </h3>
-                        <button
-                            className="btn-secondary h-8 px-3 text-xs"
-                            onClick={onClose}
-                        >
-                            Close
-                        </button>
-                    </div>
-                    <div className="px-4 sm:px-6 py-4 sm:py-6 overflow-y-auto text-sm scroll-area-native space-y-8 w-full flex-1 text-left min-w-0 text-slate-800 dark:text-slate-200">
-                        <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                            <span className="flex items-center gap-1">
-                                ID:
-                                <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded select-all">
-                                    {userId}
-                                </span>
-                            </span>
-                            {loading && (
-                                <span className="animate-pulse">Loading…</span>
-                            )}
-                            {error && (
-                                <span className="text-red-500 dark:text-red-400 normal-case">
-                                    {error}
-                                </span>
-                            )}
-                            {!loading && !error && insight && (
-                                <span className="text-green-600 dark:text-green-400">
-                                    Loaded
-                                </span>
-                            )}
-                        </div>
-                        {loading ? (
-                            <div className="text-slate-600 dark:text-slate-300">
-                                Loading…
-                            </div>
-                        ) : error ? (
-                            <div className="text-red-600 dark:text-red-300 space-y-4">
-                                <p className="font-medium">{error}</p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    Check if your account has the required role
-                                    or if the backend user activity table has
-                                    entries for this user.
-                                </p>
-                                <button
-                                    onClick={() => load()}
-                                    className="btn-secondary text-xs"
-                                >
-                                    Retry
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="space-y-8 w-full min-w-0">
-                                {insight && (
-                                    <>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs w-full min-w-0">
-                                            <div>
-                                                <p className="text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                                    Username
-                                                </p>
-                                                <div className="font-medium text-slate-800 dark:text-slate-200 break-all">
-                                                    {insight.displayName ||
-                                                        insight.username}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                                    User ID
-                                                </p>
-                                                <div className="font-mono text-slate-700 dark:text-slate-300 break-all text-[11px] max-w-[200px] overflow-x-auto whitespace-nowrap">
-                                                    {insight.userId}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                                    Total Activities
-                                                </p>
-                                                <div className="text-slate-800 dark:text-slate-200 font-medium">
-                                                    {insight.totalActivities}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                                    Today Activities
-                                                </p>
-                                                <div className="text-slate-800 dark:text-slate-200 font-medium">
-                                                    {insight.todayActivityCount}
-                                                </div>
-                                            </div>
-                                            {insight.avgSessionMinutesToday !==
-                                                undefined && (
-                                                <div>
-                                                    <p className="text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                                        Avg Session (Today)
-                                                    </p>
-                                                    <div className="text-slate-800 dark:text-slate-200 font-medium">
-                                                        {
-                                                            insight.avgSessionMinutesToday
-                                                        }
-                                                        m
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/50">
-                                            <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 tracking-wide uppercase">
-                                                Feature Usage (30d)
-                                            </h4>
-                                            {insight.featureUsage.length ===
-                                            0 ? (
-                                                <p className="text-slate-500 dark:text-slate-400 text-xs">
-                                                    No activity.
-                                                </p>
-                                            ) : (
-                                                <div className="overflow-x-auto max-w-full w-full">
-                                                    <table className="w-full text-xs table-fixed break-words border-collapse">
-                                                        <thead>
-                                                            <tr className="text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wide">
-                                                                <th className="text-left font-medium pb-1 w-5/12">
-                                                                    Feature
-                                                                </th>
-                                                                <th className="text-right font-medium pb-1 w-3/12">
-                                                                    Count
-                                                                </th>
-                                                                <th className="text-right font-medium pb-1 w-2/12">
-                                                                    %
-                                                                </th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {insight.featureUsage
-                                                                .slice(0, 15)
-                                                                .map(
-                                                                    (
-                                                                        f: UserInsightSummary['featureUsage'][number]
-                                                                    ) => (
-                                                                        <tr
-                                                                            key={
-                                                                                f.feature
-                                                                            }
-                                                                            className="border-t border-slate-100 dark:border-slate-800"
-                                                                        >
-                                                                            <td
-                                                                                className="py-1 pr-2 break-words align-top"
-                                                                                title={
-                                                                                    f.feature
-                                                                                }
-                                                                            >
-                                                                                {
-                                                                                    f.feature
-                                                                                }
-                                                                            </td>
-                                                                            <td className="py-1 text-right tabular-nums">
-                                                                                {
-                                                                                    f.count
-                                                                                }
-                                                                            </td>
-                                                                            <td className="py-1 text-right tabular-nums">
-                                                                                {
-                                                                                    f.percentage
-                                                                                }
-                                                                                %
-                                                                            </td>
-                                                                        </tr>
-                                                                    )
-                                                                )}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/50">
-                                            <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 tracking-wide uppercase">
-                                                Recent Activity
-                                            </h4>
-                                            {insight.recentActivities.length ===
-                                            0 ? (
-                                                <p className="text-slate-500 dark:text-slate-400 text-xs">
-                                                    No recent actions.
-                                                </p>
-                                            ) : (
-                                                <div className="overflow-x-auto max-w-full w-full">
-                                                    <table className="w-full text-xs font-mono table-fixed break-words border-collapse">
-                                                        <thead>
-                                                            <tr className="text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wide">
-                                                                <th className="text-left font-medium pb-1 w-7/12">
-                                                                    Action
-                                                                </th>
-                                                                <th className="text-right font-medium pb-1 w-3/12">
-                                                                    Time
-                                                                </th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {insight.recentActivities.map(
-                                                                (
-                                                                    a: UserInsightSummary['recentActivities'][number],
-                                                                    idx: number
-                                                                ) => (
-                                                                    <tr
-                                                                        key={
-                                                                            idx
-                                                                        }
-                                                                        className="border-t border-slate-100 dark:border-slate-800"
-                                                                    >
-                                                                        <td
-                                                                            className="py-1 pr-3 break-words align-top"
-                                                                            title={
-                                                                                a.action
-                                                                            }
-                                                                        >
-                                                                            {
-                                                                                a.action
-                                                                            }
-                                                                        </td>
-                                                                        <td className="py-1 text-right text-slate-500 dark:text-slate-400 tabular-nums whitespace-nowrap">
-                                                                            {new Date(
-                                                                                a.createdAt
-                                                                            ).toLocaleTimeString(
-                                                                                [],
-                                                                                {
-                                                                                    hour: '2-digit',
-                                                                                    minute: '2-digit',
-                                                                                }
-                                                                            )}
-                                                                        </td>
-                                                                    </tr>
-                                                                )
-                                                            )}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                                {!insight && !error && !loading && (
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        No activity data for this user.
-                                    </div>
-                                )}
+
+            {/* Modal */}
+            <div className="relative z-10 w-full sm:w-[min(560px,95vw)] max-h-[90vh] sm:max-h-[85vh] bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-xl shadow-xl flex flex-col overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                        {insight && (
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                                {(insight.displayName || insight.username)
+                                    .charAt(0)
+                                    .toUpperCase()}
                             </div>
                         )}
+                        <div className="min-w-0">
+                            <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                {insight
+                                    ? insight.displayName || insight.username
+                                    : 'User Insights'}
+                            </h3>
+                            {insight?.displayName && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                    @{insight.username}
+                                </p>
+                            )}
+                        </div>
                     </div>
+                    <button
+                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0"
+                        onClick={onClose}
+                        aria-label="Close"
+                    >
+                        <svg
+                            className="w-5 h-5 text-slate-500"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                            />
+                        </svg>
+                    </button>
                 </div>
+
+                {/* Content */}
+                {loading ? (
+                    <div className="flex-1 flex items-center justify-center p-8">
+                        <div className="text-center">
+                            <div className="inline-block w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">
+                                Loading insights...
+                            </p>
+                        </div>
+                    </div>
+                ) : error ? (
+                    <div className="flex-1 flex items-center justify-center p-8">
+                        <div className="text-center">
+                            <div className="text-3xl mb-3">⚠️</div>
+                            <p className="text-sm text-red-600 dark:text-red-400 mb-3">
+                                {error}
+                            </p>
+                            <button
+                                onClick={() => load()}
+                                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    </div>
+                ) : insight ? (
+                    <>
+                        {/* Tabs */}
+                        <div className="flex border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+                            {(
+                                ['overview', 'features', 'activity'] as const
+                            ).map((tab) => (
+                                <button
+                                    key={tab}
+                                    className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                                        activeTab === tab
+                                            ? 'text-sky-600 dark:text-sky-400 border-b-2 border-sky-500'
+                                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                                    }`}
+                                    onClick={() => setActiveTab(tab)}
+                                >
+                                    {tab === 'overview' && '📊 Overview'}
+                                    {tab === 'features' && '🎯 Features'}
+                                    {tab === 'activity' && '📋 Activity'}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Tab Content */}
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {/* Overview Tab */}
+                            {activeTab === 'overview' && (
+                                <div className="space-y-4">
+                                    {/* Stats Grid */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200/50 dark:border-blue-700/30">
+                                            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                                Total Activities
+                                            </p>
+                                            <p className="text-2xl font-bold text-blue-800 dark:text-blue-200">
+                                                {insight.totalActivities}
+                                            </p>
+                                        </div>
+                                        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-200/50 dark:border-green-700/30">
+                                            <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                                                Today
+                                            </p>
+                                            <p className="text-2xl font-bold text-green-800 dark:text-green-200">
+                                                {insight.todayActivityCount}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {insight.avgSessionMinutesToday !==
+                                        undefined && (
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-200/50 dark:border-purple-700/30">
+                                            <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                Avg Session (Today)
+                                            </p>
+                                            <p className="text-xl font-bold text-purple-800 dark:text-purple-200">
+                                                {insight.avgSessionMinutesToday}{' '}
+                                                min
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* User ID */}
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+                                            User ID
+                                        </p>
+                                        <p className="text-xs font-mono text-slate-700 dark:text-slate-300 break-all select-all">
+                                            {insight.userId}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Features Tab */}
+                            {activeTab === 'features' && (
+                                <div className="space-y-2">
+                                    {insight.featureUsage.length === 0 ? (
+                                        <div className="text-center py-8">
+                                            <div className="text-3xl mb-2">
+                                                📭
+                                            </div>
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                                No feature usage data
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        insight.featureUsage
+                                            .slice(0, 15)
+                                            .map((f, index) => {
+                                                const maxCount = Math.max(
+                                                    ...insight.featureUsage.map(
+                                                        (x) => x.count
+                                                    ),
+                                                    1
+                                                );
+                                                return (
+                                                    <div
+                                                        key={f.feature}
+                                                        className="p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                                                    >
+                                                        <div className="flex items-center justify-between gap-2 mb-1">
+                                                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                                <div
+                                                                    className="w-2 h-2 rounded-full flex-shrink-0"
+                                                                    style={{
+                                                                        backgroundColor: `hsl(${
+                                                                            (index *
+                                                                                47) %
+                                                                            360
+                                                                        }, 65%, 50%)`,
+                                                                    }}
+                                                                />
+                                                                <span className="text-sm text-slate-900 dark:text-slate-100 truncate">
+                                                                    {f.feature}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200 tabular-nums">
+                                                                    {f.count}
+                                                                </span>
+                                                                <span className="text-xs text-slate-500 tabular-nums w-10 text-right">
+                                                                    {
+                                                                        f.percentage
+                                                                    }
+                                                                    %
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full rounded-full"
+                                                                style={{
+                                                                    width: `${
+                                                                        (f.count /
+                                                                            maxCount) *
+                                                                        100
+                                                                    }%`,
+                                                                    backgroundColor: `hsl(${
+                                                                        (index *
+                                                                            47) %
+                                                                        360
+                                                                    }, 65%, 50%)`,
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Activity Tab */}
+                            {activeTab === 'activity' && (
+                                <div className="space-y-1">
+                                    {insight.recentActivities.length === 0 ? (
+                                        <div className="text-center py-8">
+                                            <div className="text-3xl mb-2">
+                                                📭
+                                            </div>
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                                No recent activity
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        insight.recentActivities.map(
+                                            (a, idx) => {
+                                                const activityDate = new Date(
+                                                    a.createdAt
+                                                );
+                                                const today = new Date();
+                                                const isToday =
+                                                    activityDate.toDateString() ===
+                                                    today.toDateString();
+                                                const yesterday = new Date(
+                                                    today
+                                                );
+                                                yesterday.setDate(
+                                                    yesterday.getDate() - 1
+                                                );
+                                                const isYesterday =
+                                                    activityDate.toDateString() ===
+                                                    yesterday.toDateString();
+
+                                                let dateLabel: string;
+                                                if (isToday) {
+                                                    dateLabel = 'Today';
+                                                } else if (isYesterday) {
+                                                    dateLabel = 'Yesterday';
+                                                } else {
+                                                    dateLabel =
+                                                        activityDate.toLocaleDateString(
+                                                            [],
+                                                            {
+                                                                month: 'short',
+                                                                day: 'numeric',
+                                                            }
+                                                        );
+                                                }
+
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        className="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                                                    >
+                                                        <span className="text-sm text-slate-700 dark:text-slate-200 truncate flex-1 font-mono">
+                                                            {a.action}
+                                                        </span>
+                                                        <div className="flex flex-col items-end flex-shrink-0">
+                                                            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                                                                {activityDate.toLocaleTimeString(
+                                                                    [],
+                                                                    {
+                                                                        hour: '2-digit',
+                                                                        minute: '2-digit',
+                                                                    }
+                                                                )}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                                                                {dateLabel}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                        )
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex-1 flex items-center justify-center p-8">
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            No data available
+                        </p>
+                    </div>
+                )}
             </div>
         </div>
     );
