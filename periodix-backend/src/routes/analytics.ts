@@ -112,6 +112,8 @@ router.get('/details', adminOrUserManagerOnly, async (req, res) => {
             'searches_today',
             'new_users_today',
             'session_duration_top',
+            'total_users',
+            'retention',
         ];
         if (!allowed.includes(metricParam as AnalyticsDetailMetric)) {
             return res.status(400).json({

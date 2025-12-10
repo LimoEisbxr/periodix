@@ -1019,6 +1019,84 @@ const DayColumn: FC<DayColumnProps> = ({
                     const roomInfoMeta = getRoomDisplayText(l);
                     const roomChanged = !!roomInfoMeta?.hasChanges;
                     const teacherChanged = !!l.te?.some((t) => !!t.orgname);
+
+                    // Check if teacher changed to empty/--- (substitution with no replacement)
+                    const teacherChangedToEmpty =
+                        l.te?.some(
+                            (t) =>
+                                t.orgname &&
+                                (!t.name ||
+                                    t.name === '---' ||
+                                    t.name.trim() === '')
+                        ) ?? false;
+
+                    // Hierarchical secondary info for single-line layouts:
+                    // Priority (highest to lowest):
+                    // 1. Teacher changed to empty/"---" -> show original teacher name
+                    // 2. Room changed -> show room (with highlight)
+                    // 3. Teacher changed (to someone else) -> show new teacher (with highlight)
+                    // 4. Default -> show normal room
+                    type SecondaryInfo = {
+                        type: 'room' | 'teacher' | 'original-teacher';
+                        text: string;
+                        highlight: boolean;
+                    } | null;
+
+                    const getSecondaryInfo = (): SecondaryInfo => {
+                        // Priority 1: Teacher changed to empty - show original teacher
+                        if (teacherChangedToEmpty) {
+                            const originalTeacher = l.te?.find(
+                                (t) =>
+                                    t.orgname &&
+                                    (!t.name ||
+                                        t.name === '---' ||
+                                        t.name.trim() === '')
+                            );
+                            if (originalTeacher?.orgname) {
+                                return {
+                                    type: 'original-teacher',
+                                    text: originalTeacher.orgname,
+                                    highlight: true,
+                                };
+                            }
+                        }
+
+                        // Priority 2: Room changed - show room
+                        if (roomChanged && room) {
+                            return {
+                                type: 'room',
+                                text: room,
+                                highlight: true,
+                            };
+                        }
+
+                        // Priority 3: Teacher changed (to someone else) - show new teacher
+                        if (
+                            teacherChanged &&
+                            !teacherChangedToEmpty &&
+                            teacher
+                        ) {
+                            return {
+                                type: 'teacher',
+                                text: teacher,
+                                highlight: true,
+                            };
+                        }
+
+                        // Priority 4: Default - show normal room
+                        if (room) {
+                            return {
+                                type: 'room',
+                                text: room,
+                                highlight: false,
+                            };
+                        }
+
+                        return null;
+                    };
+
+                    const secondaryInfo = getSecondaryInfo();
+
                     const isTinyMobileSingle =
                         singleMobile && heightPx < mobileTinyLessonThresholdPx;
                     // In tiny mode:
@@ -1740,7 +1818,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                                             {inlineRoomBlock}
                                                         </>
                                                     ),
-                                                    // Level 4: Subject + Room inline (very compact)
+                                                    // Level 4: Subject + Secondary info inline (very compact)
+                                                    // Uses hierarchical priority: teacher empty > room change > teacher change > normal room
                                                     inlineRoom: (
                                                         <div className="flex flex-wrap items-baseline gap-x-2">
                                                             <div
@@ -1752,22 +1831,28 @@ const DayColumn: FC<DayColumnProps> = ({
                                                             >
                                                                 {displaySubject}
                                                             </div>
-                                                            {room && (
+                                                            {secondaryInfo && (
                                                                 <div
                                                                     className={`leading-tight text-[12px] ${
                                                                         cancelled
-                                                                            ? 'lesson-cancelled-room'
+                                                                            ? secondaryInfo.type ===
+                                                                              'room'
+                                                                                ? 'lesson-cancelled-room'
+                                                                                : 'lesson-cancelled-teacher'
                                                                             : 'opacity-95'
                                                                     }`}
                                                                 >
                                                                     <span
                                                                         className={
-                                                                            roomInfoMeta?.hasChanges
+                                                                            secondaryInfo.highlight
                                                                                 ? 'change-highlight-inline'
                                                                                 : undefined
                                                                         }
                                                                     >
-                                                                        {room}
+                                                                        {secondaryInfo.type ===
+                                                                        'original-teacher'
+                                                                            ? `(${secondaryInfo.text})`
+                                                                            : secondaryInfo.text}
                                                                     </span>
                                                                 </div>
                                                             )}
@@ -1839,7 +1924,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 )}
                                                         </div>
                                                     ),
-                                                    // Level 5: Subject only (minimal)
+                                                    // Level 5: Subject only (minimal) - with hierarchical secondary info for side-by-side
                                                     subjectOnly: (
                                                         <div className="flex items-baseline gap-x-1 text-[13px] leading-tight">
                                                             <div
@@ -1852,24 +1937,28 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 {displaySubject}
                                                             </div>
                                                             {isSideBySide &&
-                                                                room && (
+                                                                secondaryInfo && (
                                                                     <div
                                                                         className={`text-[12px] ${
                                                                             cancelled
-                                                                                ? 'lesson-cancelled-room'
+                                                                                ? secondaryInfo.type ===
+                                                                                  'room'
+                                                                                    ? 'lesson-cancelled-room'
+                                                                                    : 'lesson-cancelled-teacher'
                                                                                 : 'opacity-95'
                                                                         }`}
                                                                     >
                                                                         <span
                                                                             className={
-                                                                                roomInfoMeta?.hasChanges
+                                                                                secondaryInfo.highlight
                                                                                     ? 'change-highlight-inline'
                                                                                     : undefined
                                                                             }
                                                                         >
-                                                                            {
-                                                                                room
-                                                                            }
+                                                                            {secondaryInfo.type ===
+                                                                            'original-teacher'
+                                                                                ? `(${secondaryInfo.text})`
+                                                                                : secondaryInfo.text}
                                                                         </span>
                                                                     </div>
                                                                 )}

@@ -64,7 +64,11 @@ export type AnalyticsDetailMetric =
     | 'searches_today'
     | 'new_users_today'
     // Top users by average session duration today (derived)
-    | 'session_duration_top';
+    | 'session_duration_top'
+    // Total registered users
+    | 'total_users'
+    // Users who returned after first day
+    | 'retention';
 
 export interface AnalyticsDetailItem {
     userId: string;

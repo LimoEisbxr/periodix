@@ -194,6 +194,60 @@ export async function getAnalyticsDetails(
             });
             return { metric, items };
         }
+        case 'total_users': {
+            // List all registered users
+            const users = await (prisma as any).user.findMany({
+                select: {
+                    id: true,
+                    username: true,
+                    displayName: true,
+                    createdAt: true,
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 100, // Limit to most recent 100
+            });
+            const items: AnalyticsDetailItem[] = users.map((u: any) => ({
+                userId: u.id,
+                username: u.username,
+                displayName: u.displayName,
+                firstAt: u.createdAt,
+                lastAt: u.createdAt,
+            }));
+            return { metric, items };
+        }
+        case 'retention': {
+            // Users who have been active on more than one distinct day
+            const activities = await (prisma as any).userActivity.findMany({
+                select: { userId: true, createdAt: true },
+            });
+            // Group by userId and count distinct days
+            const userDays = new Map<string, Set<string>>();
+            for (const a of activities) {
+                const day = new Date(a.createdAt).toISOString().slice(0, 10);
+                if (!userDays.has(a.userId)) userDays.set(a.userId, new Set());
+                userDays.get(a.userId)!.add(day);
+            }
+            // Filter to users with more than 1 day of activity
+            const retainedUserIds = Array.from(userDays.entries())
+                .filter(([_, days]) => days.size > 1)
+                .map(([userId]) => userId);
+            if (retainedUserIds.length === 0) {
+                return { metric, items: [] };
+            }
+            const users = await (prisma as any).user.findMany({
+                where: { id: { in: retainedUserIds } },
+                select: { id: true, username: true, displayName: true },
+            });
+            const items: AnalyticsDetailItem[] = users.map((u: any) => ({
+                userId: u.id,
+                username: u.username,
+                displayName: u.displayName,
+                count: userDays.get(u.id)?.size ?? 0,
+            }));
+            // Sort by day count descending
+            items.sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+            return { metric, items: items.slice(0, 100) };
+        }
         default:
             return { metric, items: [] };
     }
