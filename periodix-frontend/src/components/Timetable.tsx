@@ -1630,8 +1630,7 @@ export default function Timetable({
         [nextWeekDays, getWeekHolidayInfo]
     );
 
-    if (!data)
-        return <TimetableSkeleton />;
+    if (!data) return <TimetableSkeleton />;
 
     return (
         <div

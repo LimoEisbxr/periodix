@@ -1,6 +1,6 @@
 import type { FC, ReactElement } from 'react';
 import { useState, useLayoutEffect, useRef, useEffect, useMemo } from 'react';
-import FitText from './FitText';
+import AdaptiveLessonContent from './AdaptiveLessonContent';
 import EllipsisIcon from './EllipsisIcon';
 import type { Lesson, LessonColors, Holiday } from '../types';
 import { fmtHM, untisToMinutes } from '../utils/dates';
@@ -150,20 +150,16 @@ const DayColumn: FC<DayColumnProps> = ({
     });
     // Use layout effect so updates (e.g., orientation change) happen before paint, reducing flicker
     useLayoutEffect(() => {
-        if (typeof window === 'undefined') return;
-        let mq: MediaQueryList | null = null;
         try {
-            mq = window.matchMedia(MOBILE_MEDIA_QUERY);
+            const mq = window.matchMedia(MOBILE_MEDIA_QUERY);
+            const update = (e: MediaQueryListEvent | MediaQueryList) =>
+                setIsMobile('matches' in e ? e.matches : mq.matches);
+            update(mq);
+            mq.addEventListener('change', update);
+            return () => mq.removeEventListener('change', update);
         } catch {
             return;
         }
-        const update = () => setIsMobile(mq!.matches);
-        // In case environment changed before hydration
-        update();
-        mq.addEventListener('change', update);
-        return () => {
-            if (mq) mq.removeEventListener('change', update);
-        };
     }, []);
 
     // Collapse-overlap state for narrow columns even when not considered "mobile"
@@ -643,123 +639,108 @@ const DayColumn: FC<DayColumnProps> = ({
                 }}
             />
             {/* Exam Outlines - render one outline per exam (not per block) */}
-            {Array.from(examGroups.entries()).map(
-                ([examId, groupBlocks]) => {
-                    if (groupBlocks.length === 0) return null;
-                    const firstBlock = groupBlocks[0];
-                    const exam = firstBlock.l.exams?.find(
-                        (e) => e.id === examId
+            {Array.from(examGroups.entries()).map(([examId, groupBlocks]) => {
+                if (groupBlocks.length === 0) return null;
+                const firstBlock = groupBlocks[0];
+                const exam = firstBlock.l.exams?.find((e) => e.id === examId);
+                if (!exam) return null;
+
+                // Use exam times for vertical span
+                const examStartMin = clamp(
+                    untisToMinutes(exam.startTime),
+                    START_MIN,
+                    END_MIN
+                );
+                const examEndMin = Math.max(
+                    examStartMin,
+                    clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN)
+                );
+
+                const GAP_PCT = 1.5;
+                // In day view, use estimatedWidth directly as it's more reliable than measuredWidth
+                const examEffectiveWidth =
+                    isDayView && estimatedWidth > 0
+                        ? estimatedWidth
+                        : measuredWidth;
+                const gapPx = Math.max(0, examEffectiveWidth * (GAP_PCT / 100));
+                const MOBILE_MIN_COLUMN_WIDTH = 140;
+                const DESKTOP_MIN_COLUMN_WIDTH = isDayView ? 25 : 80;
+                const DESKTOP_MAX_COLUMNS = isDayView ? 12 : 8;
+
+                const isCollapsedToSingle =
+                    !isMobile && collapseNarrow && !isDayView;
+
+                // Use the first block's column info for positioning
+                // All blocks with the same exam should be in the same column position
+                const colCount = firstBlock.colCount;
+                const colIndex = firstBlock.colIndex;
+
+                let visibleCols = colCount;
+                if (isMobile && colCount > 1) {
+                    const maxFit = Math.max(
+                        1,
+                        Math.floor(
+                            (examEffectiveWidth + gapPx) /
+                                (MOBILE_MIN_COLUMN_WIDTH + gapPx)
+                        )
                     );
-                    if (!exam) return null;
-
-                    // Use exam times for vertical span
-                    const examStartMin = clamp(
-                        untisToMinutes(exam.startTime),
-                        START_MIN,
-                        END_MIN
+                    visibleCols = Math.min(colCount, maxFit);
+                } else if (!isMobile && colCount > 1) {
+                    const maxFit = Math.max(
+                        1,
+                        Math.floor(
+                            (examEffectiveWidth + gapPx) /
+                                (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
+                        )
                     );
-                    const examEndMin = Math.max(
-                        examStartMin,
-                        clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN)
-                    );
-
-                    const GAP_PCT = 1.5;
-                    // In day view, use estimatedWidth directly as it's more reliable than measuredWidth
-                    const examEffectiveWidth =
-                        isDayView && estimatedWidth > 0
-                            ? estimatedWidth
-                            : measuredWidth;
-                    const gapPx = Math.max(
-                        0,
-                        examEffectiveWidth * (GAP_PCT / 100)
-                    );
-                    const MOBILE_MIN_COLUMN_WIDTH = 140;
-                    const DESKTOP_MIN_COLUMN_WIDTH = isDayView ? 25 : 80;
-                    const DESKTOP_MAX_COLUMNS = isDayView ? 12 : 8;
-
-                    const isCollapsedToSingle =
-                        !isMobile && collapseNarrow && !isDayView;
-
-                    // Use the first block's column info for positioning
-                    // All blocks with the same exam should be in the same column position
-                    const colCount = firstBlock.colCount;
-                    const colIndex = firstBlock.colIndex;
-
-                    let visibleCols = colCount;
-                    if (isMobile && colCount > 1) {
-                        const maxFit = Math.max(
-                            1,
-                            Math.floor(
-                                (examEffectiveWidth + gapPx) /
-                                    (MOBILE_MIN_COLUMN_WIDTH + gapPx)
-                            )
-                        );
-                        visibleCols = Math.min(colCount, maxFit);
-                    } else if (!isMobile && colCount > 1) {
-                        const maxFit = Math.max(
-                            1,
-                            Math.floor(
-                                (examEffectiveWidth + gapPx) /
-                                    (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
-                            )
-                        );
-                        const cappedFit = Math.min(
-                            DESKTOP_MAX_COLUMNS,
-                            maxFit
-                        );
-                        visibleCols = Math.min(colCount, cappedFit);
-                    }
-
-                    // Skip if this column is not visible
-                    if (isCollapsedToSingle) {
-                        if (colIndex > 0) return null;
-                    } else if (colIndex >= visibleCols) {
-                        return null;
-                    }
-
-                    // Calculate width/position
-                    let widthPct: number;
-                    let leftPct: number;
-
-                    if (isCollapsedToSingle || visibleCols <= 1) {
-                        widthPct = 100;
-                        leftPct = 0;
-                    } else {
-                        const singleColWidth =
-                            (100 - GAP_PCT * (visibleCols - 1)) /
-                            visibleCols;
-                        leftPct = colIndex * (singleColWidth + GAP_PCT);
-                        widthPct = singleColWidth;
-                    }
-
-                    const PAD_TOP = isMobile ? 2 : 4;
-                    const PAD_BOTTOM = isMobile ? 2 : 4;
-                    const startPxRaw =
-                        (examStartMin - START_MIN) * SCALE + headerPx;
-                    const endPxRaw =
-                        (examEndMin - START_MIN) * SCALE + headerPx;
-                    const topPx = Math.round(startPxRaw) + PAD_TOP;
-                    const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
-                    const heightPx = Math.max(
-                        isMobile ? 30 : 14,
-                        endPx - topPx
-                    );
-
-                    return (
-                        <div
-                            key={`exam-${examId}`}
-                            className="absolute pointer-events-none z-10 rounded-xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
-                            style={{
-                                top: topPx,
-                                height: heightPx,
-                                left: `${leftPct}%`,
-                                width: `${widthPct}%`,
-                                borderWidth: '3px',
-                            }}
-                        />
-                    );
+                    const cappedFit = Math.min(DESKTOP_MAX_COLUMNS, maxFit);
+                    visibleCols = Math.min(colCount, cappedFit);
                 }
-            )}
+
+                // Skip if this column is not visible
+                if (isCollapsedToSingle) {
+                    if (colIndex > 0) return null;
+                } else if (colIndex >= visibleCols) {
+                    return null;
+                }
+
+                // Calculate width/position
+                let widthPct: number;
+                let leftPct: number;
+
+                if (isCollapsedToSingle || visibleCols <= 1) {
+                    widthPct = 100;
+                    leftPct = 0;
+                } else {
+                    const singleColWidth =
+                        (100 - GAP_PCT * (visibleCols - 1)) / visibleCols;
+                    leftPct = colIndex * (singleColWidth + GAP_PCT);
+                    widthPct = singleColWidth;
+                }
+
+                const PAD_TOP = isMobile ? 2 : 4;
+                const PAD_BOTTOM = isMobile ? 2 : 4;
+                const startPxRaw =
+                    (examStartMin - START_MIN) * SCALE + headerPx;
+                const endPxRaw = (examEndMin - START_MIN) * SCALE + headerPx;
+                const topPx = Math.round(startPxRaw) + PAD_TOP;
+                const endPx = Math.round(endPxRaw) - PAD_BOTTOM;
+                const heightPx = Math.max(isMobile ? 30 : 14, endPx - topPx);
+
+                return (
+                    <div
+                        key={`exam-${examId}`}
+                        className="absolute pointer-events-none z-10 rounded-xl border border-yellow-400 dark:border-yellow-300 bg-yellow-400/20 dark:bg-yellow-400/20"
+                        style={{
+                            top: topPx,
+                            height: heightPx,
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                            borderWidth: '3px',
+                        }}
+                    />
+                );
+            })}
             {blocks
                 // render in top order to make bottom tracking deterministic
                 // Sort by start time asc, then duration desc (Longer first) so Shorter renders on top (z-index)
@@ -920,7 +901,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Pixel-snapped positioning
                     // Mobile: tighter outer padding but slightly larger minimum block height
                     const PAD_TOP = isMobile ? 2 : 4;
-                    const PAD_BOTTOM = isMobile ? 2 : 4;
+                    const PAD_BOTTOM = isMobile ? 2 : 2; // halved desktop bottom padding to free space
                     const startPxRaw =
                         (b.startMin - START_MIN) * SCALE + headerPx;
                     const endPxRaw = (b.endMin - START_MIN) * SCALE + headerPx;
@@ -930,7 +911,11 @@ const DayColumn: FC<DayColumnProps> = ({
                     const GAP_BUDGET = isMobile ? 1 : 2;
                     // Minimum visual height per lesson
 
-                    const MIN_EVENT_HEIGHT = isMobile ? 30 : 14; // slightly larger baseline on mobile for tap comfort
+                    const MIN_EVENT_HEIGHT = isMobile
+                        ? 30
+                        : b.colCount > 1
+                        ? 30
+                        : 14; // ensure side-by-side blocks have enough height to avoid clipping
                     let heightPx = Math.max(
                         MIN_EVENT_HEIGHT,
                         endPx - topPx - GAP_BUDGET
@@ -949,11 +934,17 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     // Reserve space for bottom labels and pad right for indicators
                     const labelReservePx = 0; // No longer reserve space for status labels
-                    const MIN_BOTTOM_RESERVE = isMobile ? 4 : 6; // slightly tighter on mobile
+                    const MIN_BOTTOM_RESERVE = isMobile ? 4 : 3; // halved desktop bottom reserve to reduce clipping
                     const reservedBottomPx = Math.max(
                         labelReservePx,
                         MIN_BOTTOM_RESERVE
                     );
+                    // If the block is too short vertically, force stacking to avoid cramped side-by-side layout
+                    const forceStackByHeight =
+                        !isMobile && b.colCount > 1 && heightPx < 36;
+                    if (forceStackByHeight && b.colIndex > 0) {
+                        return null; // only render the first column when forced to stack
+                    }
                     // Extra right padding for room label shown under icons on desktop
                     const roomPadRightPx =
                         !isMobile && room ? (isClassTimetable ? 20 : 88) : 0;
@@ -961,57 +952,23 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Previously used to decide rendering of inline info previews; now removed.
                     // const MIN_PREVIEW_HEIGHT = isMobile ? 44 : 56;
 
-                    // Determine if there's enough space to show time frame along with teacher
-                    // We need space for: subject (~16px) + teacher (~14px) + time (~14px) + margins
-                    // Only show time if we have sufficient space for subject + teacher + time
-                    const MIN_TIME_DISPLAY_HEIGHT = isMobile
-                        ? 70
-                        : isClassTimetable
-                        ? 44
-                        : 70;
                     // When the timeframe wraps to multiple lines, require a bit more vertical space for single (non-merged) lessons
+                    // (Still used by ResponsiveTimeFrame in full layout)
                     const MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE = isMobile
                         ? 0 // timeframe is not shown on mobile
                         : isClassTimetable
                         ? 64
                         : 80;
-                    // Second threshold for very compact layout: move teacher to same row as subject
-                    const MIN_COMPACT_DISPLAY_HEIGHT = isMobile
-                        ? 55
-                        : isClassTimetable
-                        ? 65
-                        : 55;
-                    // Separate threshold for cancelled/irregular lessons (they can use compact layout more aggressively)
-                    const MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 66 : isClassTimetable ? 45 : 66;
-
-                    // Third threshold: replace teacher with room on the same row as subject (very tight space)
-                    const MIN_INLINE_ROOM_DISPLAY_HEIGHT = isMobile
-                        ? 45
-                        : isClassTimetable
-                        ? 32
-                        : 45;
-                    const MIN_INLINE_ROOM_DISPLAY_HEIGHT_CANCELLED_IRREGULAR =
-                        isMobile ? 55 : isClassTimetable ? 55 : 55;
 
                     const availableSpace = heightPx - reservedBottomPx;
-                    const canShowTimeFrame =
-                        !isMobile && availableSpace >= MIN_TIME_DISPLAY_HEIGHT;
 
-                    // Use different compact layout thresholds for cancelled/irregular vs normal lessons
-                    const compactThreshold =
-                        cancelled || irregular
-                            ? MIN_COMPACT_DISPLAY_HEIGHT_CANCELLED_IRREGULAR
-                            : MIN_COMPACT_DISPLAY_HEIGHT;
-                    const shouldUseCompactLayout =
-                        !isMobile && availableSpace <= compactThreshold;
+                    // Whether this lesson is displayed side-by-side with another
+                    if (forceStackByHeight) {
+                        widthPct = 100;
+                        leftPct = 0;
+                    }
 
-                    const inlineRoomThreshold =
-                        cancelled || irregular
-                            ? MIN_INLINE_ROOM_DISPLAY_HEIGHT_CANCELLED_IRREGULAR
-                            : MIN_INLINE_ROOM_DISPLAY_HEIGHT;
-                    const shouldUseInlineRoomLayout =
-                        !isMobile && availableSpace <= inlineRoomThreshold;
+                    const isSideBySide = b.colCount > 1 && !forceStackByHeight;
 
                     // Compute content padding so mobile remains centered when icons exist
                     // Desktop readability fix:
@@ -1020,14 +977,31 @@ const DayColumn: FC<DayColumnProps> = ({
                     // only occupy a small corner on the right. We now only reserve space for the optional room label plus
                     // a small constant (8px) and let the text flow underneath the vertical icon column if needed.
                     // Reduce padding when lessons are side by side to maximize text space
+                    // For side-by-side lessons, avoid reserving right padding so content can fully use the width
                     const sideByySideAdjustment =
-                        b.colCount > 1
-                            ? Math.max(0, roomPadRightPx - 40)
-                            : roomPadRightPx;
+                        b.colCount > 1 ? 0 : roomPadRightPx;
                     const contentPadRight = isMobile
                         ? 0 // mobile keeps centered layout
                         : sideByySideAdjustment + 4; // reduced padding for side-by-side lessons
                     const contentPadLeft = 0;
+
+                    // Calculate actual content dimensions for AdaptiveLessonContent
+                    // Lesson width = effectiveWidth * (widthPct / 100) - horizontal padding (p-2.5 sm:p-3 = ~12px each side)
+                    const lessonWidthPx = effectiveWidth * (widthPct / 100);
+                    const horizontalPadding = isSideBySide ? 12 : 24; // even tighter for side-by-side
+                    const contentWidthPx = Math.max(
+                        0,
+                        lessonWidthPx -
+                            horizontalPadding -
+                            contentPadRight -
+                            contentPadLeft
+                    );
+                    // Content height = heightPx - vertical padding - reservedBottomPx
+                    const verticalPadding = isSideBySide ? 4 : 24; // minimal padding for tight side-by-side blocks
+                    const contentHeightPx = Math.max(
+                        0,
+                        heightPx - verticalPadding - reservedBottomPx
+                    );
 
                     // Auto contrast decision based on middle gradient (via) luminance heuristics
                     const viaColor = gradient.via;
@@ -1064,7 +1038,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     const showClassCondensedMeta =
                         isClassTimetable &&
                         !isMobile &&
-                        !canShowTimeFrame &&
+                        availableSpace < 44 && // Show condensed time when space is tight (same as old MIN_TIME_DISPLAY_HEIGHT for class)
                         availableSpace > 14;
 
                     const condensedTimeLabel = showClassCondensedMeta
@@ -1092,9 +1066,11 @@ const DayColumn: FC<DayColumnProps> = ({
                             </div>
                         ) : null;
 
+                    const lessonKey = `${l.id}${b.keySuffix || ''}`;
+
                     return (
                         <div
-                            key={`${l.id}${b.keySuffix || ''}`}
+                            key={lessonKey}
                             className={`timetable-lesson absolute rounded-xl p-2.5 sm:p-3 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-[3px] border-rose-600 dark:border-rose-500'
@@ -1112,9 +1088,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                           gradient
                                       )}`
                                     : gradientToSmoothCss(gradient),
-                                // Larger invisible hit target for touch
-                                paddingTop: isMobile ? 4 : undefined,
-                                paddingBottom: isMobile ? 4 : undefined,
+                                // Mobile-only reduced padding is handled by CSS p-2.5 (10px) vs sm:p-3 (12px)
+                                // Don't override padding here - let CSS handle responsive padding
                                 boxShadow:
                                     '0 1px 2px -1px rgba(0,0,0,0.25), 0 2px 6px -1px rgba(0,0,0,0.25)',
                             }}
@@ -1123,7 +1098,9 @@ const DayColumn: FC<DayColumnProps> = ({
                             )} | ${subject} ${room ? `| ${room}` : ''} ${
                                 teacher ? `| ${teacher}` : ''
                             }`}
-                            onClick={() => onLessonClick(l)}
+                            onClick={() => {
+                                onLessonClick(l);
+                            }}
                         >
                             {/* Indicator for collapsed overlaps (mobile overlay position) */}
                             {isMobileCollapsed && b.colCount > 1 && (
@@ -1271,21 +1248,23 @@ const DayColumn: FC<DayColumnProps> = ({
                                             </svg>
                                         </div>
                                     )}
-                                    {!isClassTimetable && l.exams && l.exams.length > 0 && (
-                                        <div className="w-3 h-3 bg-red-400 dark:bg-red-500 rounded-full flex items-center justify-center shadow-sm">
-                                            <svg
-                                                className="w-2 h-2 text-white"
-                                                fill="currentColor"
-                                                viewBox="0 0 20 20"
-                                            >
-                                                <path
-                                                    fillRule="evenodd"
-                                                    d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z"
-                                                    clipRule="evenodd"
-                                                />
-                                            </svg>
-                                        </div>
-                                    )}
+                                    {!isClassTimetable &&
+                                        l.exams &&
+                                        l.exams.length > 0 && (
+                                            <div className="w-3 h-3 bg-red-400 dark:bg-red-500 rounded-full flex items-center justify-center shadow-sm">
+                                                <svg
+                                                    className="w-2 h-2 text-white"
+                                                    fill="currentColor"
+                                                    viewBox="0 0 20 20"
+                                                >
+                                                    <path
+                                                        fillRule="evenodd"
+                                                        d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z"
+                                                        clipRule="evenodd"
+                                                    />
+                                                </svg>
+                                            </div>
+                                        )}
                                     {hasChanges && (
                                         <div className="w-3 h-3 bg-emerald-400 dark:bg-emerald-500 rounded-full flex items-center justify-center shadow-sm">
                                             <svg
@@ -1302,10 +1281,10 @@ const DayColumn: FC<DayColumnProps> = ({
                                         </div>
                                     )}
                                 </div>
-                                {/* Desktop inline info snippet under icons (only when time is shown) */}
+                                {/* Desktop inline info snippet under icons (only when there's enough space) */}
                                 {l.info &&
                                     l.info.trim().length < 4 &&
-                                    canShowTimeFrame && (
+                                    availableSpace >= 70 && (
                                         <div
                                             className="mt-0.5 max-w-[140px] text-[10px] leading-snug text-white/90 text-right bg-black/15 dark:bg-black/20 px-1 py-0.5 rounded-sm backdrop-blur-[1px] overflow-hidden"
                                             style={{ maxHeight: '3.3em' }}
@@ -1315,7 +1294,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                     )}
                                 {l.lstext &&
                                     l.lstext.trim().length < 4 &&
-                                    canShowTimeFrame && (
+                                    availableSpace >= 70 && (
                                         <div
                                             className="mt-0.5 max-w-[140px] text-[10px] leading-snug text-white/90 text-right bg-black/10 dark:bg-black/15 px-1 py-0.5 rounded-sm backdrop-blur-[1px] overflow-hidden"
                                             style={{ maxHeight: '3.3em' }}
@@ -1348,7 +1327,9 @@ const DayColumn: FC<DayColumnProps> = ({
                                         const hasInfo = !!l.info;
                                         const hasLstext = !!l.lstext;
                                         const hasExams =
-                                            !isClassTimetable && l.exams && l.exams.length > 0;
+                                            !isClassTimetable &&
+                                            l.exams &&
+                                            l.exams.length > 0;
                                         const informationCount = [
                                             hasHomework,
                                             hasInfo,
@@ -1542,176 +1523,367 @@ const DayColumn: FC<DayColumnProps> = ({
                                     })()}
                                     {/* Removed lstext preview in timetable (mobile) */}
                                 </div>
-                                {/* Desktop layout - adaptive based on available space */}
+                                {/* Desktop layout - content-aware adaptive layout */}
                                 <div className="hidden sm:flex flex-col sm:flex-row items-stretch justify-between gap-1.5 sm:gap-2 min-w-0 h-full">
-                                    <FitText
-                                        mode="both"
-                                        maxScale={1.6}
-                                        minScale={isClassTimetable ? 0.8 : 0.9} // prevent overly tiny scaling that reduced readability
-                                        reserveBottom={reservedBottomPx}
-                                        className="min-w-0 self-stretch"
-                                    >
-                                        {shouldUseCompactLayout ? (
-                                            // Compact layout: subject and teacher on same line
-                                            <>
-                                                <div className="flex flex-wrap items-baseline gap-x-2">
-                                                    <div
-                                                        className={`font-semibold leading-tight text-[13px] ${
-                                                            cancelled
-                                                                ? 'lesson-cancelled-subject'
-                                                                : ''
-                                                        }`}
-                                                    >
-                                                        {displaySubject}
-                                                    </div>
-                                                    {shouldUseInlineRoomLayout &&
-                                                    !cancelled ? (
-                                                        // Show Room inline instead of Teacher
-                                                        <div
-                                                            className={`leading-tight text-[12px] ${
-                                                                cancelled
-                                                                    ? 'lesson-cancelled-room'
-                                                                    : 'opacity-95'
-                                                            }`}
-                                                        >
-                                                            <span
-                                                                className={
-                                                                    roomInfoMeta?.hasChanges
-                                                                        ? 'change-highlight-inline'
-                                                                        : undefined
-                                                                }
+                                    {(() => {
+                                        const minScaleApplied = isSideBySide
+                                            ? 0.4
+                                            : isClassTimetable
+                                            ? 0.8
+                                            : 0.88;
+                                        return (
+                                            <AdaptiveLessonContent
+                                                availableHeight={
+                                                    contentHeightPx
+                                                }
+                                                availableWidth={contentWidthPx}
+                                                isSideBySide={isSideBySide}
+                                                isCancelledOrIrregular={
+                                                    cancelled || irregular
+                                                }
+                                                // contentHeightPx already excludes reservedBottomPx, so keep reserveBottom 0
+                                                reserveBottom={0}
+                                                minScale={minScaleApplied}
+                                                maxScale={1.4}
+                                                className="min-w-0 self-stretch"
+                                                layouts={{
+                                                    // Level 0: Full layout - Subject, Teacher, Room, Time
+                                                    full: (
+                                                        <>
+                                                            <div
+                                                                className={`font-semibold leading-tight text-[13px] ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
                                                             >
-                                                                {room}
-                                                            </span>
-                                                        </div>
-                                                    ) : (
-                                                        // Show Teacher inline
-                                                        (() => {
-                                                            if (
-                                                                !l.te ||
-                                                                l.te.length ===
-                                                                    0
-                                                            )
-                                                                return null;
-                                                            return (
+                                                                {displaySubject}
+                                                            </div>
+                                                            {l.te &&
+                                                                l.te.length >
+                                                                    0 && (
+                                                                    <div
+                                                                        className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                                            cancelled
+                                                                                ? 'lesson-cancelled-teacher'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
+                                                                        {l.te.map(
+                                                                            (
+                                                                                t,
+                                                                                i
+                                                                            ) => (
+                                                                                <span
+                                                                                    key={
+                                                                                        i
+                                                                                    }
+                                                                                    className={
+                                                                                        t.orgname
+                                                                                            ? 'change-highlight-inline'
+                                                                                            : undefined
+                                                                                    }
+                                                                                >
+                                                                                    {
+                                                                                        t.name
+                                                                                    }
+                                                                                </span>
+                                                                            )
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            {inlineRoomBlock}
+                                                            {(!(
+                                                                cancelled ||
+                                                                irregular
+                                                            ) ||
+                                                                ((cancelled ||
+                                                                    irregular) &&
+                                                                    isMerged)) && (
+                                                                <ResponsiveTimeFrame
+                                                                    startMin={
+                                                                        b.startMin
+                                                                    }
+                                                                    endMin={
+                                                                        b.endMin
+                                                                    }
+                                                                    cancelled={
+                                                                        cancelled &&
+                                                                        isMerged
+                                                                    }
+                                                                    availableSpace={
+                                                                        availableSpace
+                                                                    }
+                                                                    singleLesson={
+                                                                        !isMerged
+                                                                    }
+                                                                    minHeightWhenWrapped={
+                                                                        MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </>
+                                                    ),
+                                                    // Level 1: No time - Subject, Teacher, Room
+                                                    noTime: (
+                                                        <>
+                                                            <div
+                                                                className={`font-semibold leading-tight text-[13px] ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {displaySubject}
+                                                            </div>
+                                                            {l.te &&
+                                                                l.te.length >
+                                                                    0 && (
+                                                                    <div
+                                                                        className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                                            cancelled
+                                                                                ? 'lesson-cancelled-teacher'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
+                                                                        {l.te.map(
+                                                                            (
+                                                                                t,
+                                                                                i
+                                                                            ) => (
+                                                                                <span
+                                                                                    key={
+                                                                                        i
+                                                                                    }
+                                                                                    className={
+                                                                                        t.orgname
+                                                                                            ? 'change-highlight-inline'
+                                                                                            : undefined
+                                                                                    }
+                                                                                >
+                                                                                    {
+                                                                                        t.name
+                                                                                    }
+                                                                                </span>
+                                                                            )
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            {inlineRoomBlock}
+                                                        </>
+                                                    ),
+                                                    // Level 2: Compact - Subject + Teacher inline, Room below
+                                                    compact: (
+                                                        <>
+                                                            <div className="flex flex-wrap items-baseline gap-x-2">
                                                                 <div
-                                                                    className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                                    className={`font-semibold leading-tight text-[13px] ${
                                                                         cancelled
-                                                                            ? 'lesson-cancelled-teacher'
+                                                                            ? 'lesson-cancelled-subject'
                                                                             : ''
-                                                                    } mb-0.5`}
+                                                                    }`}
                                                                 >
-                                                                    {l.te.map(
-                                                                        (
-                                                                            t,
-                                                                            i
-                                                                        ) => (
-                                                                            <span
-                                                                                key={
-                                                                                    i
-                                                                                }
-                                                                                className={
-                                                                                    t.orgname
-                                                                                        ? 'change-highlight-inline'
-                                                                                        : undefined
-                                                                                }
-                                                                            >
-                                                                                {
-                                                                                    t.name
-                                                                                }
-                                                                            </span>
-                                                                        )
-                                                                    )}
+                                                                    {
+                                                                        displaySubject
+                                                                    }
                                                                 </div>
-                                                            );
-                                                        })()
-                                                    )}
-                                                </div>
-                                                {!shouldUseInlineRoomLayout &&
-                                                    inlineRoomBlock}
-                                            </>
-                                        ) : (
-                                            // Normal layout: subject, teacher, time (time moved below teacher per request)
-                                            <>
-                                                <div
-                                                    className={`font-semibold leading-tight text-[13px] ${
-                                                        cancelled
-                                                            ? 'lesson-cancelled-subject'
-                                                            : ''
-                                                    }`}
-                                                >
-                                                    {displaySubject}
-                                                </div>
-                                                {(() => {
-                                                    if (
-                                                        !l.te ||
-                                                        l.te.length === 0
-                                                    )
-                                                        return null;
-                                                    return (
-                                                        <div
-                                                            className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
-                                                                cancelled
-                                                                    ? 'lesson-cancelled-teacher'
-                                                                    : ''
-                                                            }`}
-                                                        >
-                                                            {l.te.map(
-                                                                (t, i) => (
+                                                                {l.te &&
+                                                                    l.te
+                                                                        .length >
+                                                                        0 && (
+                                                                        <div
+                                                                            className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                                                cancelled
+                                                                                    ? 'lesson-cancelled-teacher'
+                                                                                    : ''
+                                                                            } mb-0.5`}
+                                                                        >
+                                                                            {l.te.map(
+                                                                                (
+                                                                                    t,
+                                                                                    i
+                                                                                ) => (
+                                                                                    <span
+                                                                                        key={
+                                                                                            i
+                                                                                        }
+                                                                                        className={
+                                                                                            t.orgname
+                                                                                                ? 'change-highlight-inline'
+                                                                                                : undefined
+                                                                                        }
+                                                                                    >
+                                                                                        {
+                                                                                            t.name
+                                                                                        }
+                                                                                    </span>
+                                                                                )
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                            </div>
+                                                            {inlineRoomBlock}
+                                                        </>
+                                                    ),
+                                                    // Level 3: Subject + Room only (no teacher) - good for side-by-side
+                                                    subjectRoom: (
+                                                        <>
+                                                            <div
+                                                                className={`font-semibold leading-tight text-[13px] ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {displaySubject}
+                                                            </div>
+                                                            {inlineRoomBlock}
+                                                        </>
+                                                    ),
+                                                    // Level 4: Subject + Room inline (very compact)
+                                                    inlineRoom: (
+                                                        <div className="flex flex-wrap items-baseline gap-x-2">
+                                                            <div
+                                                                className={`font-semibold leading-tight text-[13px] ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {displaySubject}
+                                                            </div>
+                                                            {room && (
+                                                                <div
+                                                                    className={`leading-tight text-[12px] ${
+                                                                        cancelled
+                                                                            ? 'lesson-cancelled-room'
+                                                                            : 'opacity-95'
+                                                                    }`}
+                                                                >
                                                                     <span
-                                                                        key={i}
                                                                         className={
-                                                                            t.orgname
+                                                                            roomInfoMeta?.hasChanges
                                                                                 ? 'change-highlight-inline'
                                                                                 : undefined
                                                                         }
                                                                     >
-                                                                        {t.name}
+                                                                        {room}
                                                                     </span>
-                                                                )
+                                                                </div>
                                                             )}
                                                         </div>
-                                                    );
-                                                })()}
-                                                {inlineRoomBlock}
-                                                {/* Timeframe moved below teacher */}
-                                                {canShowTimeFrame &&
-                                                    (!(
-                                                        cancelled || irregular
-                                                    ) ||
-                                                        ((cancelled ||
-                                                            irregular) &&
-                                                            isMerged)) && (
-                                                        <ResponsiveTimeFrame
-                                                            startMin={
-                                                                b.startMin
-                                                            }
-                                                            endMin={b.endMin}
-                                                            cancelled={
-                                                                cancelled &&
-                                                                isMerged
-                                                            }
-                                                            // Hide time for single lessons when wrapped if not enough height
-                                                            availableSpace={
-                                                                availableSpace
-                                                            }
-                                                            singleLesson={
-                                                                !isMerged
-                                                            }
-                                                            minHeightWhenWrapped={
-                                                                MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE
-                                                            }
-                                                        />
-                                                    )}
-                                            </>
-                                        )}
-                                        {/* inlineRoomBlock was here */}
-                                        {condensedTimeLabel && (
-                                            <div className="text-[11px] leading-tight opacity-85 mt-0.5">
-                                                {condensedTimeLabel}
-                                            </div>
-                                        )}
-                                    </FitText>
+                                                    ),
+                                                    // Level 6: Subject + Room + Teacher all inline (single-line saver)
+                                                    inlineAll: (
+                                                        <div className="flex flex-wrap items-baseline gap-x-2 text-[12px] leading-tight">
+                                                            <div
+                                                                className={`font-semibold ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {displaySubject}
+                                                            </div>
+                                                            {room && (
+                                                                <div
+                                                                    className={`flex items-center gap-x-1 ${
+                                                                        cancelled
+                                                                            ? 'lesson-cancelled-room'
+                                                                            : 'opacity-95'
+                                                                    }`}
+                                                                >
+                                                                    <span
+                                                                        className={
+                                                                            roomInfoMeta?.hasChanges
+                                                                                ? 'change-highlight-inline'
+                                                                                : undefined
+                                                                        }
+                                                                    >
+                                                                        {room}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                            {l.te &&
+                                                                l.te.length >
+                                                                    0 && (
+                                                                    <div
+                                                                        className={`flex items-center gap-x-1 ${
+                                                                            cancelled
+                                                                                ? 'lesson-cancelled-teacher'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
+                                                                        {l.te.map(
+                                                                            (
+                                                                                t,
+                                                                                i
+                                                                            ) => (
+                                                                                <span
+                                                                                    key={
+                                                                                        i
+                                                                                    }
+                                                                                    className={
+                                                                                        t.orgname
+                                                                                            ? 'change-highlight-inline'
+                                                                                            : undefined
+                                                                                    }
+                                                                                >
+                                                                                    {
+                                                                                        t.name
+                                                                                    }
+                                                                                </span>
+                                                                            )
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                        </div>
+                                                    ),
+                                                    // Level 5: Subject only (minimal)
+                                                    subjectOnly: (
+                                                        <div className="flex items-baseline gap-x-1 text-[13px] leading-tight">
+                                                            <div
+                                                                className={`font-semibold ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {displaySubject}
+                                                            </div>
+                                                            {isSideBySide &&
+                                                                room && (
+                                                                    <div
+                                                                        className={`text-[12px] ${
+                                                                            cancelled
+                                                                                ? 'lesson-cancelled-room'
+                                                                                : 'opacity-95'
+                                                                        }`}
+                                                                    >
+                                                                        <span
+                                                                            className={
+                                                                                roomInfoMeta?.hasChanges
+                                                                                    ? 'change-highlight-inline'
+                                                                                    : undefined
+                                                                            }
+                                                                        >
+                                                                            {
+                                                                                room
+                                                                            }
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                        </div>
+                                                    ),
+                                                }}
+                                            />
+                                        );
+                                    })()}
+                                    {condensedTimeLabel && (
+                                        <div className="text-[11px] leading-tight opacity-85 mt-0.5">
+                                            {condensedTimeLabel}
+                                        </div>
+                                    )}
                                 </div>
                                 {/* Info/Notes preview (desktop) */}
                                 {/* Info preview moved to indicators area (desktop) */}
