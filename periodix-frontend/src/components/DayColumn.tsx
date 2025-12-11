@@ -970,6 +970,13 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     const isSideBySide = b.colCount > 1 && !forceStackByHeight;
 
+                    // Calculate per-lesson width to determine if we're in "cramped" mode
+                    const perLessonWidth = effectiveWidth * (widthPct / 100);
+                    // In day view, side-by-side lessons often have plenty of space (100px+)
+                    // In week view, side-by-side lessons are cramped (<80px each)
+                    const isCrampedSideBySide =
+                        isSideBySide && perLessonWidth < 100;
+
                     // Compute content padding so mobile remains centered when icons exist
                     // Desktop readability fix:
                     // Previously we subtracted the full indicator stack width from the content area (indicatorsPadRightPx),
@@ -988,7 +995,8 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Calculate actual content dimensions for AdaptiveLessonContent
                     // Lesson width = effectiveWidth * (widthPct / 100) - horizontal padding (p-2.5 sm:p-3 = ~12px each side)
                     const lessonWidthPx = effectiveWidth * (widthPct / 100);
-                    const horizontalPadding = isSideBySide ? 12 : 24; // even tighter for side-by-side
+                    // Use tighter padding only when truly cramped; day view side-by-side gets normal padding
+                    const horizontalPadding = isCrampedSideBySide ? 12 : 24;
                     const contentWidthPx = Math.max(
                         0,
                         lessonWidthPx -
@@ -997,7 +1005,8 @@ const DayColumn: FC<DayColumnProps> = ({
                             contentPadLeft
                     );
                     // Content height = heightPx - vertical padding - reservedBottomPx
-                    const verticalPadding = isSideBySide ? 4 : 24; // minimal padding for tight side-by-side blocks
+                    // Use tighter vertical padding only when truly cramped
+                    const verticalPadding = isCrampedSideBySide ? 4 : 24;
                     const contentHeightPx = Math.max(
                         0,
                         heightPx - verticalPadding - reservedBottomPx
@@ -1595,18 +1604,22 @@ const DayColumn: FC<DayColumnProps> = ({
                                 {/* Desktop layout - content-aware adaptive layout */}
                                 <div className="hidden sm:flex flex-col sm:flex-row items-stretch justify-between gap-1.5 sm:gap-2 min-w-0 h-full">
                                     {(() => {
-                                        const minScaleApplied = isSideBySide
-                                            ? 0.4
-                                            : isClassTimetable
-                                            ? 0.8
-                                            : 0.88;
+                                        // Use cramped detection for minScale - only aggressive scaling when truly cramped
+                                        const minScaleApplied =
+                                            isCrampedSideBySide
+                                                ? 0.4
+                                                : isClassTimetable
+                                                ? 0.8
+                                                : 0.88;
                                         return (
                                             <AdaptiveLessonContent
                                                 availableHeight={
                                                     contentHeightPx
                                                 }
                                                 availableWidth={contentWidthPx}
-                                                isSideBySide={isSideBySide}
+                                                isSideBySide={
+                                                    isCrampedSideBySide
+                                                }
                                                 isCancelledOrIrregular={
                                                     cancelled || irregular
                                                 }
