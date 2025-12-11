@@ -719,7 +719,7 @@ const DayColumn: FC<DayColumnProps> = ({
                 }
 
                 const PAD_TOP = isMobile ? 2 : 4;
-                const PAD_BOTTOM = isMobile ? 2 : 4;
+                const PAD_BOTTOM = isMobile ? 0 : 0; // Match lesson padding for proper alignment
                 const startPxRaw =
                     (examStartMin - START_MIN) * SCALE + headerPx;
                 const endPxRaw = (examEndMin - START_MIN) * SCALE + headerPx;
