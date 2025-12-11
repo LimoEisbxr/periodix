@@ -1146,10 +1146,17 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     const lessonKey = `${l.id}${b.keySuffix || ''}`;
 
+                    // Cancelled/irregular lessons have 3px border that eats into content space
+                    // Use less bottom padding for them to compensate
+                    const hasBorder = cancelled || irregular;
+                    const paddingClasses = hasBorder
+                        ? 'px-2.5 pt-2.5 pb-1 sm:px-3 sm:pt-3 sm:pb-1'
+                        : 'px-2.5 pt-2.5 pb-3 sm:px-3 sm:pt-3 sm:pb-3';
+
                     return (
                         <div
                             key={lessonKey}
-                            className={`timetable-lesson absolute rounded-xl px-2.5 pt-2.5 pb-2.5 sm:px-3 sm:pt-3 sm:pb-2.5 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
+                            className={`timetable-lesson absolute rounded-xl ${paddingClasses} text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-[3px] border-rose-600 dark:border-rose-500'
                                     : irregular
