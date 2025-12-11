@@ -1149,7 +1149,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     return (
                         <div
                             key={lessonKey}
-                            className={`timetable-lesson absolute rounded-xl px-2.5 pt-2.5 pb-1 sm:px-3 sm:pt-3 sm:pb-1 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
+                            className={`timetable-lesson absolute rounded-xl px-2.5 pt-2.5 pb-2.5 sm:px-3 sm:pt-3 sm:pb-2.5 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-[3px] border-rose-600 dark:border-rose-500'
                                     : irregular
