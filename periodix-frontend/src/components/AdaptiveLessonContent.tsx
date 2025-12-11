@@ -183,7 +183,25 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                         // Calculate required scale to fit
                         const scaleH = effectiveHeight / contentHeight;
                         const scaleW = availableWidth / contentWidth;
-                        const requiredScale = Math.min(scaleH, scaleW);
+
+                        // For single-line layouts (4, 5, 6), prioritize horizontal fit
+                        // These layouts have minimal height and should be selected based on width
+                        const isSingleLineLayout =
+                            level === 4 || level === 5 || level === 6;
+
+                        let requiredScale: number;
+                        if (isSingleLineLayout) {
+                            // For single-line: only care about width fitting
+                            // Height is almost always sufficient for single lines
+                            // Use height only as a sanity check (must be at least 0.5 scale)
+                            requiredScale =
+                                scaleH >= 0.5
+                                    ? scaleW
+                                    : Math.min(scaleH, scaleW);
+                        } else {
+                            // For multi-line layouts: use the more restrictive of the two
+                            requiredScale = Math.min(scaleH, scaleW);
+                        }
 
                         attempts.push({
                             level,

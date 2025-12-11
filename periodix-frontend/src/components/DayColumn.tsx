@@ -901,7 +901,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     // Pixel-snapped positioning
                     // Mobile: tighter outer padding but slightly larger minimum block height
                     const PAD_TOP = isMobile ? 2 : 4;
-                    const PAD_BOTTOM = isMobile ? 2 : 2; // halved desktop bottom padding to free space
+                    const PAD_BOTTOM = isMobile ? 0 : 0; // halved desktop bottom padding to free space
                     const startPxRaw =
                         (b.startMin - START_MIN) * SCALE + headerPx;
                     const endPxRaw = (b.endMin - START_MIN) * SCALE + headerPx;
@@ -1032,33 +1032,24 @@ const DayColumn: FC<DayColumnProps> = ({
 
                     // Hierarchical secondary info for single-line layouts:
                     // Priority (highest to lowest):
-                    // 1. Teacher changed to empty/"---" -> show original teacher name
+                    // 1. Teacher changed to empty/"---" -> show "---" (consistent with other layouts)
                     // 2. Room changed -> show room (with highlight)
                     // 3. Teacher changed (to someone else) -> show new teacher (with highlight)
                     // 4. Default -> show normal room
                     type SecondaryInfo = {
-                        type: 'room' | 'teacher' | 'original-teacher';
+                        type: 'room' | 'teacher' | 'no-teacher';
                         text: string;
                         highlight: boolean;
                     } | null;
 
                     const getSecondaryInfo = (): SecondaryInfo => {
-                        // Priority 1: Teacher changed to empty - show original teacher
+                        // Priority 1: Teacher changed to empty - show "---"
                         if (teacherChangedToEmpty) {
-                            const originalTeacher = l.te?.find(
-                                (t) =>
-                                    t.orgname &&
-                                    (!t.name ||
-                                        t.name === '---' ||
-                                        t.name.trim() === '')
-                            );
-                            if (originalTeacher?.orgname) {
-                                return {
-                                    type: 'original-teacher',
-                                    text: originalTeacher.orgname,
-                                    highlight: true,
-                                };
-                            }
+                            return {
+                                type: 'no-teacher',
+                                text: '---',
+                                highlight: true,
+                            };
                         }
 
                         // Priority 2: Room changed - show room
@@ -1149,7 +1140,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     return (
                         <div
                             key={lessonKey}
-                            className={`timetable-lesson absolute rounded-xl p-2.5 sm:p-3 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
+                            className={`timetable-lesson absolute rounded-xl px-2.5 pt-2.5 pb-1 sm:px-3 sm:pt-3 sm:pb-1 text-[11px] sm:text-xs ring-1 ring-slate-900/10 dark:ring-white/15 overflow-hidden cursor-pointer transform duration-150 hover:shadow-lg hover:brightness-110 hover:saturate-140 hover:contrast-110 backdrop-blur-[1px] ${textColorClass} ${
                                 cancelled
                                     ? 'border-[3px] border-rose-600 dark:border-rose-500'
                                     : irregular
@@ -1849,10 +1840,9 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                                 : undefined
                                                                         }
                                                                     >
-                                                                        {secondaryInfo.type ===
-                                                                        'original-teacher'
-                                                                            ? `(${secondaryInfo.text})`
-                                                                            : secondaryInfo.text}
+                                                                        {
+                                                                            secondaryInfo.text
+                                                                        }
                                                                     </span>
                                                                 </div>
                                                             )}
@@ -1955,10 +1945,9 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                                     : undefined
                                                                             }
                                                                         >
-                                                                            {secondaryInfo.type ===
-                                                                            'original-teacher'
-                                                                                ? `(${secondaryInfo.text})`
-                                                                                : secondaryInfo.text}
+                                                                            {
+                                                                                secondaryInfo.text
+                                                                            }
                                                                         </span>
                                                                     </div>
                                                                 )}
