@@ -150,7 +150,7 @@ export default function AnalyticsTab({ token }: { token: string }) {
                         }%`}
                         icon="📈"
                         color="amber"
-                        subtitle="7-day average"
+                        // subtitle="7-day average"
                         onClick={() => handleDetailClick('retention')}
                     />
                 </div>
