@@ -154,7 +154,7 @@ router.get('/overview', adminOrUserManagerOnly, async (_req, res) => {
 // Get per-user insight summary
 router.get('/user/:userId', adminOrUserManagerOnly, async (req, res) => {
     try {
-        const { userId } = req.params;
+        const userId = (req.params.userId || '') as string;
         if (!userId) {
             return res.status(400).json({ error: 'Missing userId' });
         }
