@@ -21,7 +21,8 @@ export function getAbsencePresetRange(
     referenceDate = new Date()
 ): DateRange {
     const now = new Date(referenceDate);
-    const end = fmtLocal(now);
+    // Extend end date to 60 days in the future to include future absences
+    const end = fmtLocal(addDays(now, 60));
 
     if (preset === 'thisMonth') {
         const start = fmtLocal(new Date(now.getFullYear(), now.getMonth(), 1));
