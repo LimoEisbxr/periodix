@@ -21,7 +21,7 @@ const router = Router();
 // Track user activity (internal endpoint, could be called from frontend)
 const trackActivitySchema = z.object({
     action: z.string().min(1).max(50),
-    details: z.record(z.unknown()).optional(),
+    details: z.record(z.string(), z.unknown()).optional(),
 });
 
 router.post('/track', authMiddleware, async (req, res) => {
