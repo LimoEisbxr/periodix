@@ -8,6 +8,6 @@ updates:
   - package-ecosystem: "npm" # See documentation for possible values
     directories: # Location of package manifests
       - "/periodix-backend/"
-      - "/periodix-fronend/"
+      - "/periodix-frontend/"
     schedule:
       interval: "weekly"
