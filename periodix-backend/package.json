@@ -44,6 +44,6 @@
         "typescript": "^5.9.2"
     },
     "overrides": {
-        "otplib": "^13.1.1"
+        "otplib": "13.1.1"
     }
 }
