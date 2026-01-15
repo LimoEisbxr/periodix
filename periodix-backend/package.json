@@ -42,5 +42,8 @@
         "ts-node": "^10.9.2",
         "tsx": "^4.19.1",
         "typescript": "^5.9.2"
+    },
+    "overrides": {
+        "otplib": "^13.1.1"
     }
 }
