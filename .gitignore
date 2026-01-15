@@ -13,3 +13,5 @@ public/test-empty-timetable.html
 example_holiday_data.json
 periodix-backend/src/scripts/extractExams.ts
 example_exams.json
+
+generated

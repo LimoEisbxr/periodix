@@ -17,6 +17,7 @@ RUN if [ -f package-lock.json ]; then (npm ci || (echo '[Dockerfile] npm ci fail
 
 # Copy source (everything below invalidates cache only when sources change)
 COPY tsconfig.json ./tsconfig.json
+COPY prisma.config.ts ./prisma.config.ts
 COPY prisma ./prisma
 COPY src ./src
 
@@ -27,7 +28,7 @@ ENV DATABASE_URL=${DATABASE_URL}
 ENV JWT_SECRET=${JWT_SECRET}
 
 # Generate Prisma Client and build (needs DATABASE_URL for some generators)
-RUN npx prisma generate && npm run build
+RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/periodix" npx prisma generate && npm run build
 
 # Runtime stage
 FROM node:20-bookworm-slim AS runtime
@@ -53,6 +54,8 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/prisma /app/prisma
 COPY --from=build /app/dist /app/dist
+COPY --from=build /app/package.json /app/package.json
+COPY --from=build /app/prisma.config.ts /app/prisma.config.ts
 
 # App port (documented default)
 EXPOSE 3001
