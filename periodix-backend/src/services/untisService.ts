@@ -115,6 +115,13 @@ async function pruneOldTimetables() {
     const now = Date.now();
     if (now - lastCleanupRun < CLEANUP_INTERVAL_MS) return; // throttle
     lastCleanupRun = now;
+
+    // Clear in-memory caches every 6 hours to prevent infinite growth
+    holidayCache.clear();
+    classListCache.clear();
+    allClassesCache.clear();
+    absenceCache.clear();
+
     const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
     try {
         // Delete very old rows
@@ -138,6 +145,7 @@ async function pruneOldTimetables() {
                     rangeStart: r.rangeStart,
                     rangeEnd: r.rangeEnd,
                 },
+                select: { id: true },
                 orderBy: { createdAt: 'desc' },
                 skip: 0,
                 take: MAX_HISTORY_PER_RANGE,
@@ -301,6 +309,7 @@ async function pruneOldClassTimetables() {
                     rangeStart: r.rangeStart,
                     rangeEnd: r.rangeEnd,
                 },
+                select: { id: true },
                 orderBy: { createdAt: 'desc' },
                 take: MAX_HISTORY_PER_RANGE,
             });
@@ -773,11 +782,11 @@ async function fetchAndStoreUntis(args: {
         } else {
             throw new AppError('Untis fetch failed', 502, 'UNTIS_FETCH_FAILED');
         }
+    } finally {
+        try {
+            await untis.logout?.();
+        } catch {}
     }
-
-    try {
-        await untis.logout?.();
-    } catch {}
 
     // Store exam data in database
     if (examData && Array.isArray(examData) && examData.length > 0) {
@@ -880,8 +889,7 @@ export async function getOrFetchTimetableRange(args: {
 
     if (sd && ed) {
         try {
-            // TEMPORARY DEBUG: Disable cache to force fresh fetch and exam enrichment
-            // cached = await getCachedRange(target.id, sd, ed);
+            cached = await getCachedRange(target.id, sd, ed);
         } catch (e) {
             console.warn('[timetable] cache lookup failed', e);
         }
@@ -1036,9 +1044,6 @@ export async function getHolidays(userId: string) {
         } else {
             console.warn('[untis] getHolidays not available on client');
         }
-        try {
-            await untis.logout();
-        } catch {}
 
         holidayCache.set(userId, { data: holidays, timestamp: Date.now() });
         return holidays;
@@ -1056,6 +1061,10 @@ export async function getHolidays(userId: string) {
             return cached.data;
         }
         throw new AppError('Untis fetch failed', 502, 'UNTIS_FETCH_FAILED');
+    } finally {
+        try {
+            await untis.logout?.();
+        } catch (e) {}
     }
 }
 
