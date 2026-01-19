@@ -104,6 +104,14 @@ export default function Timetable({
     const END_MIN = 17 * 60 + 15; // 17:15
     const totalMinutes = END_MIN - START_MIN;
 
+    const [now, setNow] = useState<Date>(() => new Date());
+    useEffect(() => {
+        const update = () => setNow(new Date());
+        update();
+        const id = setInterval(update, 30_000);
+        return () => clearInterval(id);
+    }, []);
+
     // Use synchronous media query to set initial state correctly (avoids layout shift on mobile)
     // without relying on potentially unstable PWA window dimensions.
     const initialMobile =
@@ -427,6 +435,11 @@ export default function Timetable({
         [monday],
     );
 
+    const [translateX, setTranslateX] = useState(0); // Current transform offset
+    const [isDragging, setIsDragging] = useState(false);
+    const [isAnimating, setIsAnimating] = useState(false);
+    const [isHighlightVisible, setIsHighlightVisible] = useState(false);
+
     // Multi-week data for sliding animation
     const prevWeekMonday = useMemo(() => addDays(monday, -7), [monday]);
     const nextWeekMonday = useMemo(() => addDays(monday, 7), [monday]);
@@ -441,6 +454,48 @@ export default function Timetable({
         [nextWeekMonday],
     );
 
+    const todayISO = useMemo(() => fmtLocal(now), [now]);
+    const isCurrentWeek = useMemo(
+        () => days.some((d) => fmtLocal(d) === todayISO),
+        [days, todayISO],
+    );
+    const isPrevWeekCurrent = useMemo(
+        () => prevWeekDays.some((d) => fmtLocal(d) === todayISO),
+        [prevWeekDays, todayISO],
+    );
+    const isNextWeekCurrent = useMemo(
+        () => nextWeekDays.some((d) => fmtLocal(d) === todayISO),
+        [nextWeekDays, todayISO],
+    );
+
+    const hasTodayInTrack =
+        isCurrentWeek || isPrevWeekCurrent || isNextWeekCurrent;
+
+    // Control highlight visibility - shows when moving or briefly after settling on Today
+    useEffect(() => {
+        if (!hasTodayInTrack) {
+            setIsHighlightVisible(false);
+            return;
+        }
+
+        const isActivelyMoving =
+            isDragging || isAnimating || Math.abs(translateX) > 5;
+
+        if (isActivelyMoving) {
+            setIsHighlightVisible(true);
+        } else if (isCurrentWeek) {
+            // Once settled specifically on Today's week, keep visible for a bit then fade
+            const tid = setTimeout(() => {
+                setIsHighlightVisible(false);
+            }, 700);
+            return () => clearTimeout(tid);
+        } else {
+            // Settled on a week that isn't Today (but Today is still in the track buffer)
+            // Immediately hide to avoid confusion
+            setIsHighlightVisible(false);
+        }
+    }, [hasTodayInTrack, isCurrentWeek, isDragging, isAnimating, translateX]);
+
     // Advanced swipe animation for smooth week navigation
     const touchStartX = useRef<number | null>(null);
     const touchStartY = useRef<number | null>(null);
@@ -448,9 +503,6 @@ export default function Timetable({
     const lastMoveXRef = useRef<number | null>(null);
     const lastMoveTimeRef = useRef<number | null>(null);
     const flingVelocityRef = useRef<number>(0); // px per second captured at release
-    const [translateX, setTranslateX] = useState(0); // Current transform offset
-    const [isDragging, setIsDragging] = useState(false);
-    const [isAnimating, setIsAnimating] = useState(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const slidingTrackRef = useRef<HTMLDivElement | null>(null);
     // Navigation lock to avoid double week jumps when diagonal / fast gestures overshoot
@@ -1412,19 +1464,6 @@ export default function Timetable({
         forceGestureReattach,
     ]);
 
-    const [now, setNow] = useState<Date>(() => new Date());
-    useEffect(() => {
-        const update = () => setNow(new Date());
-        update();
-        const id = setInterval(update, 30_000);
-        return () => clearInterval(id);
-    }, []);
-
-    const todayISO = fmtLocal(new Date());
-    const isCurrentWeek = useMemo(
-        () => days.some((d) => fmtLocal(d) === todayISO),
-        [days, todayISO],
-    );
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const isWithinDay = nowMin >= START_MIN && nowMin <= END_MIN;
     const showNowLine = isCurrentWeek && isWithinDay;
@@ -2285,6 +2324,15 @@ export default function Timetable({
                                     className="flex gap-x-px sm:gap-x-1 relative"
                                     style={{ width: 'calc(33.333% - 0.17rem)' }}
                                 >
+                                    {isPrevWeekCurrent && (
+                                        <div
+                                            className={`absolute -inset-1.5 z-0 pointer-events-none rounded-2xl transition-opacity duration-500 ${
+                                                isHighlightVisible
+                                                    ? 'opacity-100'
+                                                    : 'opacity-0'
+                                            } bg-orange-200/40 dark:bg-orange-500/20 ring-2 ring-orange-400/50 dark:ring-orange-500/30`}
+                                        />
+                                    )}
                                     {prevWeekDays.map((d) => {
                                         const key = fmtLocal(d);
                                         const items =
@@ -2380,6 +2428,15 @@ export default function Timetable({
                                     className="flex gap-x-px sm:gap-x-1 relative"
                                     style={{ width: 'calc(33.333% - 0.17rem)' }}
                                 >
+                                    {isCurrentWeek && (
+                                        <div
+                                            className={`absolute -inset-1.5 z-0 pointer-events-none rounded-2xl transition-opacity duration-500 ${
+                                                isHighlightVisible
+                                                    ? 'opacity-100'
+                                                    : 'opacity-0'
+                                            } bg-orange-200/40 dark:bg-orange-500/20 ring-2 ring-orange-400/50 dark:ring-orange-500/30`}
+                                        />
+                                    )}
                                     {/* Current time line moved to parent container */}
 
                                     {days.map((d) => {
@@ -2485,6 +2542,15 @@ export default function Timetable({
                                     className="flex gap-x-px sm:gap-x-1 relative"
                                     style={{ width: 'calc(33.333% - 0.17rem)' }}
                                 >
+                                    {isNextWeekCurrent && (
+                                        <div
+                                            className={`absolute -inset-1.5 z-0 pointer-events-none rounded-2xl transition-opacity duration-500 ${
+                                                isHighlightVisible
+                                                    ? 'opacity-100'
+                                                    : 'opacity-0'
+                                            } bg-orange-200/40 dark:bg-orange-500/20 ring-2 ring-orange-400/50 dark:ring-orange-500/30`}
+                                        />
+                                    )}
                                     {nextWeekDays.map((d) => {
                                         const key = fmtLocal(d);
                                         const items =
