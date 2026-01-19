@@ -129,7 +129,7 @@ async function pruneOldTimetables() {
             rangeStart: Date | null;
             rangeEnd: Date | null;
         }> = await (prisma as any).$queryRawUnsafe(
-            `SELECT DISTINCT "ownerId", "rangeStart", "rangeEnd" FROM "Timetable" WHERE "rangeStart" IS NOT NULL AND "rangeEnd" IS NOT NULL`
+            `SELECT DISTINCT "ownerId", "rangeStart", "rangeEnd" FROM "Timetable" WHERE "rangeStart" IS NOT NULL AND "rangeEnd" IS NOT NULL`,
         );
         for (const r of rows) {
             const keep = await prisma.timetable.findMany({
@@ -292,7 +292,7 @@ async function pruneOldClassTimetables() {
             rangeStart: Date | null;
             rangeEnd: Date | null;
         }> = await (prisma as any).$queryRawUnsafe(
-            `SELECT DISTINCT "classId", "rangeStart", "rangeEnd" FROM "ClassTimetableCache" WHERE "rangeStart" IS NOT NULL AND "rangeEnd" IS NOT NULL`
+            `SELECT DISTINCT "classId", "rangeStart", "rangeEnd" FROM "ClassTimetableCache" WHERE "rangeStart" IS NOT NULL AND "rangeEnd" IS NOT NULL`,
         );
         for (const r of rows) {
             const keep = await (prisma as any).classTimetableCache.findMany({
@@ -443,7 +443,7 @@ function normalizeUntisClass(entry: any): UserClassRecord | null {
     const numericId = candidates
         .map((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
         .find(
-            (val) => typeof val === 'number' && Number.isFinite(val) && val > 0
+            (val) => typeof val === 'number' && Number.isFinite(val) && val > 0,
         );
 
     if (typeof numericId !== 'number') return null;
@@ -465,7 +465,7 @@ function normalizeUntisClass(entry: any): UserClassRecord | null {
 }
 
 async function fetchOwnClassesFromUntis(
-    untis: any
+    untis: any,
 ): Promise<UserClassRecord[]> {
     const seen = new Map<number, UserClassRecord>();
     if (typeof untis.getOwnClassesList === 'function') {
@@ -493,8 +493,8 @@ async function fetchOwnClassesFromUntis(
                 const klasses = Array.isArray(student?.klasse)
                     ? student?.klasse
                     : student?.klasse
-                    ? [student.klasse]
-                    : [];
+                      ? [student.klasse]
+                      : [];
                 klasses.forEach((item: any) => {
                     const normalized = normalizeUntisClass(item);
                     if (normalized) seen.set(normalized.id, normalized);
@@ -532,7 +532,7 @@ async function fetchOwnClassesFromUntis(
         } catch (e: any) {
             console.warn(
                 '[classes] timetable inference failed',
-                e?.message || e
+                e?.message || e,
             );
         }
     }
@@ -542,7 +542,7 @@ async function fetchOwnClassesFromUntis(
 
 function resolvePermittedClassId(
     requestedClassId: number | undefined,
-    allowedClasses: UserClassRecord[]
+    allowedClasses: UserClassRecord[],
 ): number | null {
     if (!allowedClasses.length) return null;
     if (
@@ -572,7 +572,7 @@ async function fetchAndStoreUntis(args: {
         throw new AppError(
             'User missing encrypted Untis credential',
             400,
-            'MISSING_UNTIS_SECRET'
+            'MISSING_UNTIS_SECRET',
         );
     }
     let untisPassword: string;
@@ -587,14 +587,14 @@ async function fetchAndStoreUntis(args: {
         throw new AppError(
             'Credential decryption failed',
             500,
-            'DECRYPT_FAILED'
+            'DECRYPT_FAILED',
         );
     }
     const untis = new WebUntis(
         school,
         target.username,
         untisPassword,
-        host
+        host,
     ) as any;
     try {
         await untis.login();
@@ -604,7 +604,7 @@ async function fetchAndStoreUntis(args: {
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -629,7 +629,7 @@ async function fetchAndStoreUntis(args: {
             lessonsData = await untis.getOwnTimetableForToday();
         } else {
             console.debug(
-                '[timetable] calling getTimetableForToday (fallback)'
+                '[timetable] calling getTimetableForToday (fallback)',
             );
             lessonsData = await untis.getTimetableForToday?.();
         }
@@ -646,8 +646,8 @@ async function fetchAndStoreUntis(args: {
                 homeworkData = Array.isArray(hwResp)
                     ? hwResp
                     : Array.isArray(hwResp?.homeworks)
-                    ? hwResp.homeworks
-                    : [];
+                      ? hwResp.homeworks
+                      : [];
                 // Build a map of lessonId -> subject string if available
                 const lessonSubjectByLessonId: Map<number, string> = new Map();
                 const lessonsArr: any[] = Array.isArray(hwResp?.lessons)
@@ -663,7 +663,7 @@ async function fetchAndStoreUntis(args: {
                 }
                 console.debug(
                     '[timetable] fetched homework count',
-                    homeworkData.length
+                    homeworkData.length,
                 );
                 // Persist with subject enrichment and due dates
                 if (homeworkData.length > 0) {
@@ -671,19 +671,19 @@ async function fetchAndStoreUntis(args: {
                         await storeHomeworkData(
                             target.id,
                             homeworkData,
-                            lessonSubjectByLessonId
+                            lessonSubjectByLessonId,
                         );
                     } catch (e: any) {
                         console.warn(
                             '[timetable] failed to store homework data',
-                            e?.message
+                            e?.message,
                         );
                     }
                 }
             } catch (e: any) {
                 console.warn(
                     '[timetable] getHomeWorksFor failed, continuing without homework',
-                    e?.message
+                    e?.message,
                 );
                 homeworkData = [];
             }
@@ -700,23 +700,23 @@ async function fetchAndStoreUntis(args: {
                 // Force fallback if standard API returns empty, as it often returns [] instead of 403/error
                 if (!Array.isArray(examData) || examData.length === 0) {
                     throw new Error(
-                        'Standard API returned no exams, forcing fallback'
+                        'Standard API returned no exams, forcing fallback',
                     );
                 }
             } catch (e: any) {
                 console.warn(
                     '[timetable] getExamsForRange failed or empty, trying Public API fallback',
-                    e?.message
+                    e?.message,
                 );
                 try {
                     examData = await fetchExamsFromPublicApi(untis, sd, ed);
                     console.debug(
-                        `[timetable] Public API fallback found ${examData.length} exams`
+                        `[timetable] Public API fallback found ${examData.length} exams`,
                     );
                 } catch (e2: any) {
                     console.warn(
                         '[timetable] Public API fallback failed',
-                        e2?.message
+                        e2?.message,
                     );
                     examData = [];
                 }
@@ -737,12 +737,12 @@ async function fetchAndStoreUntis(args: {
                 (l: any) =>
                     l.is?.exam === true ||
                     l.cellState === 'EXAM' ||
-                    (l.exam && typeof l.exam === 'object')
+                    (l.exam && typeof l.exam === 'object'),
             );
 
             if (explicitExams.length > 0) {
                 console.debug(
-                    `[timetable] found ${explicitExams.length} explicit exams in lessons`
+                    `[timetable] found ${explicitExams.length} explicit exams in lessons`,
                 );
                 examData = explicitExams.map((l: any) => ({
                     id: l.exam?.id || l.id,
@@ -793,7 +793,7 @@ async function fetchAndStoreUntis(args: {
         target.id,
         lessonsData || [],
         sd,
-        ed
+        ed,
     );
 
     const payload = enrichedLessons;
@@ -919,7 +919,7 @@ export async function getOrFetchTimetableRange(args: {
                         userId: target.id,
                         code: err.code,
                         message: err.message,
-                    }
+                    },
                 );
                 const fallbackReason: TimetableFallbackReason =
                     String(err.code ?? '').toUpperCase() === 'BAD_CREDENTIALS'
@@ -1004,7 +1004,7 @@ export async function getHolidays(userId: string) {
         throw new AppError(
             'User missing encrypted Untis credential',
             400,
-            'MISSING_UNTIS_SECRET'
+            'MISSING_UNTIS_SECRET',
         );
     }
     let untisPassword: string;
@@ -1018,14 +1018,14 @@ export async function getHolidays(userId: string) {
         throw new AppError(
             'Credential decryption failed',
             500,
-            'DECRYPT_FAILED'
+            'DECRYPT_FAILED',
         );
     }
     const untis = new WebUntis(
         UNTIS_DEFAULT_SCHOOL,
         target.username,
         untisPassword,
-        UNTIS_HOST
+        UNTIS_HOST,
     ) as any;
 
     try {
@@ -1048,7 +1048,7 @@ export async function getHolidays(userId: string) {
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         // If login fails, try to return cached data even if expired
@@ -1067,7 +1067,7 @@ export async function getAbsentLessons(args: {
 }) {
     const { rangeStart, rangeEnd } = normalizeAbsenceRange(
         args.start,
-        args.end
+        args.end,
     );
     const normalizedExcuseId =
         typeof args.excuseStatusId === 'number' &&
@@ -1117,7 +1117,7 @@ export async function getAbsentLessons(args: {
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -1128,13 +1128,13 @@ export async function getAbsentLessons(args: {
             throw new AppError(
                 'Absent lessons not supported by Untis',
                 501,
-                'METHOD_NOT_AVAILABLE'
+                'METHOD_NOT_AVAILABLE',
             );
         }
         const raw = await untis.getAbsentLesson(
             rangeStart,
             rangeEnd,
-            normalizedExcuseId
+            normalizedExcuseId,
         );
         const payload: AbsenceCachePayload = {
             userId: args.userId,
@@ -1199,7 +1199,7 @@ export async function getAbsentLessons(args: {
 
 export async function verifyUntisCredentials(
     username: string,
-    password: string
+    password: string,
 ) {
     const school = UNTIS_DEFAULT_SCHOOL;
     const host = UNTIS_HOST;
@@ -1215,7 +1215,7 @@ export async function verifyUntisCredentials(
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -1224,7 +1224,7 @@ export async function verifyUntisCredentials(
 
 export async function getUserClassInfo(
     username: string,
-    password: string
+    password: string,
 ): Promise<string[]> {
     const school = UNTIS_DEFAULT_SCHOOL;
     const host = UNTIS_HOST;
@@ -1255,7 +1255,7 @@ export async function getUserClassInfo(
                             ? student.klasse
                                   .map(
                                       (k: any) =>
-                                          k.name || k.longName || String(k)
+                                          k.name || k.longName || String(k),
                                   )
                                   .filter(Boolean)
                             : [String(student.klasse)];
@@ -1278,7 +1278,7 @@ export async function getUserClassInfo(
         } catch (e: any) {
             console.warn(
                 '[whitelist] failed to get user class info',
-                e?.message
+                e?.message,
             );
             classes = [];
         }
@@ -1294,7 +1294,7 @@ export async function getUserClassInfo(
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -1304,7 +1304,7 @@ export async function getUserClassInfo(
 async function storeHomeworkData(
     userId: string,
     homeworkData: any[],
-    lessonSubjectByLessonId?: Map<number, string>
+    lessonSubjectByLessonId?: Map<number, string>,
 ) {
     for (const hw of homeworkData) {
         try {
@@ -1347,7 +1347,7 @@ async function storeHomeworkData(
         } catch (e: any) {
             console.warn(
                 `[homework] failed to store homework ${hw?.id}:`,
-                e?.message
+                e?.message,
             );
         }
     }
@@ -1418,7 +1418,7 @@ async function enrichLessonsWithHomeworkAndExams(
     userId: string,
     lessons: any[],
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
 ): Promise<any[]> {
     if (!Array.isArray(lessons)) return lessons;
 
@@ -1426,10 +1426,10 @@ async function enrichLessonsWithHomeworkAndExams(
     const whereClause: any = { userId };
     if (startDate && endDate) {
         const startDateInt = parseInt(
-            startDate.toISOString().slice(0, 10).replace(/-/g, '')
+            startDate.toISOString().slice(0, 10).replace(/-/g, ''),
         );
         const endDateInt = parseInt(
-            endDate.toISOString().slice(0, 10).replace(/-/g, '')
+            endDate.toISOString().slice(0, 10).replace(/-/g, ''),
         );
         whereClause.date = {
             gte: startDateInt,
@@ -1466,7 +1466,7 @@ async function enrichLessonsWithHomeworkAndExams(
     const dateWithinRange = (
         hwDate: number,
         lessonDate: number,
-        dayRange: number = 7
+        dayRange: number = 7,
     ) => {
         if (hwDate === lessonDate) return true;
 
@@ -1474,12 +1474,12 @@ async function enrichLessonsWithHomeworkAndExams(
         const hwDateObj = new Date(
             Math.floor(hwDate / 10000),
             Math.floor((hwDate % 10000) / 100) - 1,
-            hwDate % 100
+            hwDate % 100,
         );
         const lessonDateObj = new Date(
             Math.floor(lessonDate / 10000),
             Math.floor((lessonDate % 10000) / 100) - 1,
-            lessonDate % 100
+            lessonDate % 100,
         );
 
         const diffMs = Math.abs(hwDateObj.getTime() - lessonDateObj.getTime());
@@ -1631,7 +1631,7 @@ async function enrichLessonsWithHomeworkAndExams(
                             (t: any) =>
                                 t.name &&
                                 t.name.trim() !== '---' &&
-                                t.name.trim() !== '?'
+                                t.name.trim() !== '?',
                         );
 
                     if (hasValidTeacher(l1)) l1Score += 5;
@@ -1675,7 +1675,7 @@ async function enrichLessonsWithHomeworkAndExams(
     return lessonsWithCandidates.map((l) => {
         if (!l.exams) return l;
         const filtered = l.exams.filter(
-            (e: any) => !removals.has(`${l.id}_${e.id}`)
+            (e: any) => !removals.has(`${l.id}_${e.id}`),
         );
         return {
             ...l,
@@ -1687,7 +1687,7 @@ async function enrichLessonsWithHomeworkAndExams(
 export async function fetchExamsFromPublicApi(
     untis: any,
     start: Date,
-    end: Date
+    end: Date,
 ) {
     const exams: any[] = [];
     // Clone start date
@@ -1708,22 +1708,22 @@ export async function fetchExamsFromPublicApi(
             // getOwnTimetableForWeek is available on the untis instance
             if (typeof untis.getOwnTimetableForWeek === 'function') {
                 console.debug(
-                    `[timetable] fetchExamsFromPublicApi: fetching week ${current.toISOString()}`
+                    `[timetable] fetchExamsFromPublicApi: fetching week ${current.toISOString()}`,
                 );
                 const weekLessons = await untis.getOwnTimetableForWeek(current);
                 console.debug(
-                    `[timetable] fetchExamsFromPublicApi: got ${weekLessons.length} lessons`
+                    `[timetable] fetchExamsFromPublicApi: got ${weekLessons.length} lessons`,
                 );
 
                 const explicitExams = weekLessons.filter(
                     (l: any) =>
                         l.is?.exam === true ||
                         l.cellState === 'EXAM' ||
-                        (l.exam && typeof l.exam === 'object')
+                        (l.exam && typeof l.exam === 'object'),
                 );
 
                 console.debug(
-                    `[timetable] fetchExamsFromPublicApi: found ${explicitExams.length} exams in week`
+                    `[timetable] fetchExamsFromPublicApi: found ${explicitExams.length} exams in week`,
                 );
 
                 if (explicitExams.length > 0) {
@@ -1740,7 +1740,7 @@ export async function fetchExamsFromPublicApi(
                             rooms: l.ro?.map((r: any) => r.name),
                             name: l.exam?.name || 'Exam',
                             text: l.lstext || l.info || l.exam?.text || 'Exam',
-                        }))
+                        })),
                     );
                 }
             }
@@ -1770,7 +1770,7 @@ export async function getUntisClientForUser(userId: string) {
         throw new AppError(
             'User missing encrypted Untis credential',
             400,
-            'MISSING_UNTIS_SECRET'
+            'MISSING_UNTIS_SECRET',
         );
     }
     let untisPassword: string;
@@ -1784,14 +1784,14 @@ export async function getUntisClientForUser(userId: string) {
         throw new AppError(
             'Credential decryption failed',
             500,
-            'DECRYPT_FAILED'
+            'DECRYPT_FAILED',
         );
     }
     const untis = new WebUntis(
         UNTIS_DEFAULT_SCHOOL,
         target.username,
         untisPassword,
-        UNTIS_HOST
+        UNTIS_HOST,
     ) as any;
 
     return untis;
@@ -1800,7 +1800,7 @@ export async function getUntisClientForUser(userId: string) {
 export async function updateExamsForUser(
     userId: string,
     start: Date,
-    end: Date
+    end: Date,
 ) {
     const untis = await getUntisClientForUser(userId);
     try {
@@ -1811,7 +1811,7 @@ export async function updateExamsForUser(
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -1860,7 +1860,7 @@ export async function getUserClasses(userId: string): Promise<
         throw new AppError(
             'User missing encrypted Untis credential',
             400,
-            'MISSING_UNTIS_SECRET'
+            'MISSING_UNTIS_SECRET',
         );
     }
 
@@ -1876,7 +1876,7 @@ export async function getUserClasses(userId: string): Promise<
         throw new AppError(
             'Credential decryption failed',
             500,
-            'DECRYPT_FAILED'
+            'DECRYPT_FAILED',
         );
     }
 
@@ -1886,7 +1886,7 @@ export async function getUserClasses(userId: string): Promise<
         school,
         target.username,
         untisPassword,
-        host
+        host,
     ) as any;
 
     try {
@@ -1897,7 +1897,7 @@ export async function getUserClasses(userId: string): Promise<
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -1912,7 +1912,7 @@ export async function getUserClasses(userId: string): Promise<
             throw new AppError(
                 'No classes linked to this account',
                 404,
-                'NO_CLASSES_FOUND'
+                'NO_CLASSES_FOUND',
             );
         }
         classListCache.set(userId, { data: classes, timestamp: Date.now() });
@@ -1925,7 +1925,7 @@ export async function getUserClasses(userId: string): Promise<
         throw new AppError(
             'Failed to fetch classes',
             502,
-            'UNTIS_FETCH_FAILED'
+            'UNTIS_FETCH_FAILED',
         );
     }
 }
@@ -1969,11 +1969,11 @@ export async function getClassTimetable(args: {
     let allowedClasses: UserClassRecord[] =
         cachedClasses &&
         Date.now() - cachedClasses.timestamp < CLASS_LIST_CACHE_TTL
-            ? cachedClasses.data ?? []
+            ? (cachedClasses.data ?? [])
             : [];
     let resolvedClassId = resolvePermittedClassId(
         requestedClassId,
-        allowedClasses
+        allowedClasses,
     );
     let cachedTimetableRecord: any | null = null;
 
@@ -1982,7 +1982,7 @@ export async function getClassTimetable(args: {
             cachedTimetableRecord = await getCachedClassRange(
                 resolvedClassId,
                 sd,
-                ed
+                ed,
             );
             if (cachedTimetableRecord) {
                 return serializeTimetableResponse({
@@ -2004,7 +2004,7 @@ export async function getClassTimetable(args: {
         throw new AppError(
             'User missing encrypted Untis credential',
             400,
-            'MISSING_UNTIS_SECRET'
+            'MISSING_UNTIS_SECRET',
         );
     }
 
@@ -2020,7 +2020,7 @@ export async function getClassTimetable(args: {
         throw new AppError(
             'Credential decryption failed',
             500,
-            'DECRYPT_FAILED'
+            'DECRYPT_FAILED',
         );
     }
 
@@ -2030,7 +2030,7 @@ export async function getClassTimetable(args: {
         school,
         requester.username,
         untisPassword,
-        host
+        host,
     ) as any;
 
     try {
@@ -2042,7 +2042,7 @@ export async function getClassTimetable(args: {
                 throw new AppError(
                     'Invalid Untis credentials',
                     401,
-                    'BAD_CREDENTIALS'
+                    'BAD_CREDENTIALS',
                 );
             }
             throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -2066,7 +2066,7 @@ export async function getClassTimetable(args: {
             throw new AppError(
                 'No classes linked to this account',
                 404,
-                'NO_CLASSES_FOUND'
+                'NO_CLASSES_FOUND',
             );
         }
 
@@ -2075,7 +2075,7 @@ export async function getClassTimetable(args: {
                 cachedTimetableRecord = await getCachedClassRange(
                     resolvedClassId,
                     sd,
-                    ed
+                    ed,
                 );
                 if (cachedTimetableRecord) {
                     await untis.logout?.();
@@ -2106,7 +2106,7 @@ export async function getClassTimetable(args: {
                     sd,
                     ed,
                     resolvedClassId,
-                    1
+                    1,
                 );
             } catch (err: any) {
                 const msg = String(err?.message || '').toLowerCase();
@@ -2116,14 +2116,14 @@ export async function getClassTimetable(args: {
                     msg.includes('no result')
                 ) {
                     console.warn(
-                        '[class-timetable] no result from Untis, returning empty'
+                        '[class-timetable] no result from Untis, returning empty',
                     );
                     lessonsData = [];
                 } else {
                     throw new AppError(
                         'Untis fetch failed',
                         502,
-                        'UNTIS_FETCH_FAILED'
+                        'UNTIS_FETCH_FAILED',
                     );
                 }
             }
@@ -2131,7 +2131,7 @@ export async function getClassTimetable(args: {
             throw new AppError(
                 'getTimetableForRange not available',
                 501,
-                'METHOD_NOT_AVAILABLE'
+                'METHOD_NOT_AVAILABLE',
             );
         }
 
@@ -2205,13 +2205,13 @@ export async function getClassTimetable(args: {
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError(
             'Failed to fetch class timetable',
             502,
-            'UNTIS_FETCH_FAILED'
+            'UNTIS_FETCH_FAILED',
         );
     }
 }
@@ -2221,7 +2221,7 @@ export async function getClassTimetable(args: {
  */
 export async function searchClasses(
     userId: string,
-    query: string
+    query: string,
 ): Promise<UserClassRecord[]> {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -2249,7 +2249,7 @@ export async function searchClasses(
             throw new AppError(
                 'User missing encrypted Untis credential',
                 400,
-                'MISSING_UNTIS_SECRET'
+                'MISSING_UNTIS_SECRET',
             );
         }
 
@@ -2264,7 +2264,7 @@ export async function searchClasses(
             throw new AppError(
                 'Credential decryption failed',
                 500,
-                'DECRYPT_FAILED'
+                'DECRYPT_FAILED',
             );
         }
 
@@ -2274,7 +2274,7 @@ export async function searchClasses(
             school,
             target.username,
             untisPassword,
-            host
+            host,
         ) as any;
 
         try {
@@ -2303,7 +2303,7 @@ export async function searchClasses(
                 throw new AppError(
                     'Invalid Untis credentials',
                     401,
-                    'BAD_CREDENTIALS'
+                    'BAD_CREDENTIALS',
                 );
             }
             // If fetch fails but we have stale cache, return it
@@ -2313,7 +2313,7 @@ export async function searchClasses(
                 throw new AppError(
                     'Failed to fetch classes',
                     502,
-                    'UNTIS_FETCH_FAILED'
+                    'UNTIS_FETCH_FAILED',
                 );
             }
         }
@@ -2324,7 +2324,7 @@ export async function searchClasses(
         .filter(
             (c) =>
                 c.name.toLowerCase().includes(q) ||
-                c.longName.toLowerCase().includes(q)
+                c.longName.toLowerCase().includes(q),
         )
         .slice(0, 20); // Limit results
 }
@@ -2332,7 +2332,7 @@ export async function searchClasses(
 export async function fetchAbsencesFromUntis(
     userId: string,
     start: Date,
-    end: Date
+    end: Date,
 ) {
     const untis = await getUntisClientForUser(userId);
     try {
@@ -2343,7 +2343,7 @@ export async function fetchAbsencesFromUntis(
             throw new AppError(
                 'Invalid Untis credentials',
                 401,
-                'BAD_CREDENTIALS'
+                'BAD_CREDENTIALS',
             );
         }
         throw new AppError('Untis login failed', 502, 'UNTIS_LOGIN_FAILED');
@@ -2390,7 +2390,7 @@ export async function storeAbsenceData(userId: string, absenceData: any[]) {
         } catch (e: any) {
             console.warn(
                 `[absence] failed to store absence ${abs.id}:`,
-                e?.message
+                e?.message,
             );
         }
     }

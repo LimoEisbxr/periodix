@@ -12,8 +12,9 @@ export async function createUserIfNotExists(input: {
     password: string;
     displayName?: string | undefined;
 }) {
+    const normalizedUsername = input.username.toLowerCase();
     const existing: any = await (prisma as any).user.findFirst({
-        where: { username: input.username },
+        where: { username: normalizedUsername },
         select: { id: true },
     });
     if (existing) return existing;
@@ -21,12 +22,12 @@ export async function createUserIfNotExists(input: {
     const enc = encryptSecret(input.password);
     return (prisma as any).user.create({
         data: {
-            username: input.username,
+            username: normalizedUsername,
             hashedPassword: hashed,
             untisSecretCiphertext: enc.ciphertext,
             untisSecretNonce: enc.nonce,
             untisSecretKeyVersion: enc.keyVersion,
-            displayName: input.displayName ?? null,
+            displayName: input.displayName ?? input.username,
         },
     });
 }
@@ -36,7 +37,7 @@ export async function findUserByCredentials(input: {
     password: string;
 }) {
     const user: any = await (prisma as any).user.findFirst({
-        where: { username: input.username },
+        where: { username: input.username.toLowerCase() },
     });
     if (!user) return null;
     if (!user.hashedPassword) return null; // user must have been created after migration
