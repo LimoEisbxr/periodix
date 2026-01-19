@@ -2363,7 +2363,21 @@ export async function fetchAbsencesFromUntis(
             return [];
         }
         const raw = await untis.getAbsentLesson(start, end, -1);
-        return Array.isArray(raw?.absences) ? raw.absences : [];
+        const absences = Array.isArray(raw?.absences) ? raw.absences : [];
+        const reasons = Array.isArray(raw?.absenceReasons)
+            ? raw.absenceReasons
+            : [];
+
+        // Map reasons for completeness
+        const reasonsMap = new Map();
+        for (const r of reasons) {
+            reasonsMap.set(r.id, r.name);
+        }
+
+        return absences.map((a: any) => ({
+            ...a,
+            reason: a.reasonId ? reasonsMap.get(a.reasonId) || null : null,
+        }));
     } finally {
         try {
             await untis.logout();

@@ -1382,7 +1382,7 @@ export class NotificationService {
             }, 60 * 1000);
         }
 
-        // Separate loop for absences (runs every 6 hours)
+        // Separate loop for absences (runs every 1 hour)
         if (!this.absenceIntervalId) {
             this.absenceIntervalId = setInterval(async () => {
                 if (this.isCheckingAbsences) return;
@@ -1394,8 +1394,11 @@ export class NotificationService {
                 } finally {
                     this.isCheckingAbsences = false;
                 }
-            }, 6 * 60 * 60 * 1000);
+            }, 60 * 60 * 1000);
         }
+
+        // Run first absence check after a short delay
+        setTimeout(() => this.checkAbsenceChanges(), 15000);
 
         console.log(
             `Notification service started with ${intervalMinutes} minute interval`
@@ -1463,34 +1466,27 @@ export class NotificationService {
                     const end = new Date(now);
                     end.setMonth(end.getMonth() + 3);
 
+                    const startInt = parseInt(
+                        start.toISOString().slice(0, 10).replace(/-/g, '')
+                    );
+                    const endInt = parseInt(
+                        end.toISOString().slice(0, 10).replace(/-/g, '')
+                    );
+
                     const freshAbsences = await fetchAbsencesFromUntis(
                         user.id,
                         start,
                         end
                     );
 
-                    // Fetch existing from DB
+                    // Fetch existing from DB - use overlap logic to catch all relevant absences
                     const existingAbsences = await (
                         prisma as any
                     ).absence.findMany({
                         where: {
                             userId: user.id,
-                            startDate: {
-                                gte: parseInt(
-                                    start
-                                        .toISOString()
-                                        .slice(0, 10)
-                                        .replace(/-/g, '')
-                                ),
-                            },
-                            endDate: {
-                                lte: parseInt(
-                                    end
-                                        .toISOString()
-                                        .slice(0, 10)
-                                        .replace(/-/g, '')
-                                ),
-                            },
+                            startDate: { lte: endInt },
+                            endDate: { gte: startInt },
                         },
                     });
 
@@ -1544,7 +1540,7 @@ export class NotificationService {
                                     data: { ...fresh, changes },
                                     dedupeKey: `absence_change:${user.id}:${
                                         fresh.id
-                                    }:${Date.now()}`, // Unique per update
+                                    }:${changes.sort().join(',')}`, // Unique per change set
                                 });
                             }
                         }

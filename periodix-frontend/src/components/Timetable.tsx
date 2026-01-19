@@ -479,22 +479,29 @@ export default function Timetable({
         }
 
         const isActivelyMoving =
-            isDragging || isAnimating || Math.abs(translateX) > 5;
+            isAnimating || Math.abs(translateX) > 25;
 
         if (isActivelyMoving) {
             setIsHighlightVisible(true);
-        } else if (isCurrentWeek) {
+        } else if (isCurrentWeek && isHighlightVisible) {
             // Once settled specifically on Today's week, keep visible for a bit then fade
             const tid = setTimeout(() => {
                 setIsHighlightVisible(false);
-            }, 450);
+            }, 300);
             return () => clearTimeout(tid);
         } else {
             // Settled on a week that isn't Today (but Today is still in the track buffer)
             // Immediately hide to avoid confusion
             setIsHighlightVisible(false);
         }
-    }, [hasTodayInTrack, isCurrentWeek, isDragging, isAnimating, translateX]);
+    }, [
+        hasTodayInTrack,
+        isCurrentWeek,
+        isDragging,
+        isAnimating,
+        translateX,
+        isHighlightVisible,
+    ]);
 
     // Advanced swipe animation for smooth week navigation
     const touchStartX = useRef<number | null>(null);
