@@ -79,15 +79,29 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
     }) => {
         const measureContainerRef = useRef<HTMLDivElement>(null);
         const [selectedLevel, setSelectedLevel] = useState<LayoutLevel | null>(
-            null
+            null,
         );
         const [scale, setScale] = useState(1);
 
         // Get ordered list of layouts to try (most detailed first)
         const getLayoutOrder = useCallback((): LayoutLevel[] => {
             // Base order from most to least detailed
-            // Level 6 (inlineAll with teacher) comes before level 4 (inlineRoom without teacher)
-            const allLevels: LayoutLevel[] = [0, 1, 2, 3, 6, 4, 5];
+            // Level 6 (inlineAll) is prioritized over Level 3 (subjectRoom) because it
+            // contains more information (teacher) and is more vertically efficient.
+            let allLevels: LayoutLevel[] = [0, 1, 2, 6, 3, 4, 5];
+
+            // For singular lessons with limited height (e.g. 45min blocks),
+            // prioritize layouts based on vertical capacity:
+            // 1. If very tight (<58px): One-line (Level 6) first
+            // 2. If medium (58px-74px): Two-line (Level 2) preferred over 3-line
+            // 3. If plenty (>74px): Standard detail-first order
+            if (!isSideBySide) {
+                if (availableHeight < 38) {
+                    allLevels = [6, 0, 1, 2, 3, 4, 5];
+                } else if (availableHeight < 70) {
+                    allLevels = [2, 0, 1, 6, 3, 4, 5];
+                }
+            }
 
             // Filter to only levels that have content provided
             const availableLevels = allLevels.filter((level) => {
@@ -113,14 +127,14 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
             }
 
             return availableLevels;
-        }, [layouts, isSideBySide, isCancelledOrIrregular]);
+        }, [layouts, isSideBySide, isCancelledOrIrregular, availableHeight]);
 
         const getLayoutContent = useCallback(
             (level: LayoutLevel): ReactNode => {
                 const key = levelToKey(level);
                 return layouts[key];
             },
-            [layouts]
+            [layouts],
         );
 
         useLayoutEffect(() => {
@@ -156,7 +170,7 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                 if (found) break;
                 for (const level of passLevels) {
                     const content = container.querySelector(
-                        `[data-layout-level="${level}"]`
+                        `[data-layout-level="${level}"]`,
                     ) as HTMLElement;
                     if (!content) continue;
 
@@ -166,7 +180,7 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
 
                     // Only record attempts once (during first iteration)
                     const alreadyRecorded = attempts.some(
-                        (a) => a.level === level
+                        (a) => a.level === level,
                     );
                     if (!alreadyRecorded) {
                         if (contentHeight <= 0 || contentWidth <= 0) {
@@ -219,7 +233,7 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                     bestLevel = level;
                     bestScale = Math.min(
                         maxScale,
-                        Math.max(1, attempt.requiredScale)
+                        Math.max(1, attempt.requiredScale),
                     );
                     found = true;
                     break;
@@ -345,14 +359,14 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                 </div>
             </div>
         );
-    }
+    },
 );
 
 AdaptiveLessonContent.displayName = 'AdaptiveLessonContent';
 
 /** Helper to convert layout level to object key */
 function levelToKey(
-    level: LayoutLevel
+    level: LayoutLevel,
 ): keyof AdaptiveLessonContentProps['layouts'] {
     const map: Record<
         LayoutLevel,

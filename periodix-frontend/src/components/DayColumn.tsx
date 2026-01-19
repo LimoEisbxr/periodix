@@ -279,19 +279,19 @@ const DayColumn: FC<DayColumnProps> = ({
             name.trim() === '';
 
         const hasGoodTeacherChange = teachers.some(
-            (t) => !!t.orgname && !isInvalidName(t.name)
+            (t) => !!t.orgname && !isInvalidName(t.name),
         );
         const hasGoodRoomChange = rooms.some(
-            (r) => !!r.orgname && !isInvalidName(r.name)
+            (r) => !!r.orgname && !isInvalidName(r.name),
         );
 
         if (hasGoodTeacherChange || hasGoodRoomChange) return 2;
 
         const hasBadTeacherChange = teachers.some(
-            (t) => !!t.orgname && isInvalidName(t.name)
+            (t) => !!t.orgname && isInvalidName(t.name),
         );
         const hasBadRoomChange = rooms.some(
-            (r) => !!r.orgname && isInvalidName(r.name)
+            (r) => !!r.orgname && isInvalidName(r.name),
         );
 
         if (hasBadTeacherChange || hasBadRoomChange) return 4;
@@ -311,11 +311,11 @@ const DayColumn: FC<DayColumnProps> = ({
                 startMin: clamp(
                     untisToMinutes(l.startTime),
                     START_MIN,
-                    END_MIN
+                    END_MIN,
                 ),
                 endMin: Math.max(
                     clamp(untisToMinutes(l.startTime), START_MIN, END_MIN),
-                    clamp(untisToMinutes(l.endTime), START_MIN, END_MIN)
+                    clamp(untisToMinutes(l.endTime), START_MIN, END_MIN),
                 ),
                 keySuffix: '',
             }));
@@ -510,7 +510,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                     onClick={() => {
                                         try {
                                             navigator.clipboard.writeText(
-                                                JSON.stringify(items, null, 2)
+                                                JSON.stringify(items, null, 2),
                                             );
                                         } catch {
                                             /* ignore */
@@ -649,11 +649,11 @@ const DayColumn: FC<DayColumnProps> = ({
                 const examStartMin = clamp(
                     untisToMinutes(exam.startTime),
                     START_MIN,
-                    END_MIN
+                    END_MIN,
                 );
                 const examEndMin = Math.max(
                     examStartMin,
-                    clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN)
+                    clamp(untisToMinutes(exam.endTime), START_MIN, END_MIN),
                 );
 
                 const GAP_PCT = 1.5;
@@ -681,8 +681,8 @@ const DayColumn: FC<DayColumnProps> = ({
                         1,
                         Math.floor(
                             (examEffectiveWidth + gapPx) /
-                                (MOBILE_MIN_COLUMN_WIDTH + gapPx)
-                        )
+                                (MOBILE_MIN_COLUMN_WIDTH + gapPx),
+                        ),
                     );
                     visibleCols = Math.min(colCount, maxFit);
                 } else if (!isMobile && colCount > 1) {
@@ -690,8 +690,8 @@ const DayColumn: FC<DayColumnProps> = ({
                         1,
                         Math.floor(
                             (examEffectiveWidth + gapPx) /
-                                (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
-                        )
+                                (DESKTOP_MIN_COLUMN_WIDTH + gapPx),
+                        ),
                     );
                     const cappedFit = Math.min(DESKTOP_MAX_COLUMNS, maxFit);
                     visibleCols = Math.min(colCount, cappedFit);
@@ -780,8 +780,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                 1,
                                 Math.floor(
                                     (effectiveWidth + gapPx) /
-                                        (MOBILE_MIN_COLUMN_WIDTH + gapPx)
-                                )
+                                        (MOBILE_MIN_COLUMN_WIDTH + gapPx),
+                                ),
                             );
                             visibleCols = Math.min(effectiveColCount, maxFit);
                         }
@@ -792,16 +792,16 @@ const DayColumn: FC<DayColumnProps> = ({
                                 1,
                                 Math.floor(
                                     (effectiveWidth + gapPx) /
-                                        (DESKTOP_MIN_COLUMN_WIDTH + gapPx)
-                                )
+                                        (DESKTOP_MIN_COLUMN_WIDTH + gapPx),
+                                ),
                             );
                             const cappedFit = Math.min(
                                 DESKTOP_MAX_COLUMNS,
-                                maxFit
+                                maxFit,
                             );
                             visibleCols = Math.min(
                                 effectiveColCount,
-                                cappedFit
+                                cappedFit,
                             );
                         }
                     }
@@ -842,7 +842,7 @@ const DayColumn: FC<DayColumnProps> = ({
                         ? room
                               .split(',')
                               .map((part) =>
-                                  part.replace(/\s+(?:WB?|TV|B)$/i, '').trim()
+                                  part.replace(/\s+(?:WB?|TV|B)$/i, '').trim(),
                               )
                               .join(', ')
                         : room;
@@ -865,8 +865,8 @@ const DayColumn: FC<DayColumnProps> = ({
                         ? // Reduced red tint opacity for cancelled lessons (was 0.6/0.55/0.6)
                           'linear-gradient(to right, rgba(239, 68, 68, 0.38), rgba(239, 68, 68, 0.32), rgba(239, 68, 68, 0.38))'
                         : irregular
-                        ? 'linear-gradient(to right, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.55), rgba(16, 185, 129, 0.6))'
-                        : null;
+                          ? 'linear-gradient(to right, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.55), rgba(16, 185, 129, 0.6))'
+                          : null;
 
                     // Use b.colCount (actual lessons in this cluster) for width calculation
                     // so lessons always fill the whole row when they fit
@@ -914,11 +914,11 @@ const DayColumn: FC<DayColumnProps> = ({
                     const MIN_EVENT_HEIGHT = isMobile
                         ? 30
                         : b.colCount > 1
-                        ? 30
-                        : 14; // ensure side-by-side blocks have enough height to avoid clipping
+                          ? 30
+                          : 14; // ensure side-by-side blocks have enough height to avoid clipping
                     let heightPx = Math.max(
                         MIN_EVENT_HEIGHT,
-                        endPx - topPx - GAP_BUDGET
+                        endPx - topPx - GAP_BUDGET,
                     );
 
                     // Enforce per-column cumulative bottom to avoid tiny overlaps from rounding
@@ -937,7 +937,7 @@ const DayColumn: FC<DayColumnProps> = ({
                     const MIN_BOTTOM_RESERVE = isMobile ? 4 : 3; // halved desktop bottom reserve to reduce clipping
                     const reservedBottomPx = Math.max(
                         labelReservePx,
-                        MIN_BOTTOM_RESERVE
+                        MIN_BOTTOM_RESERVE,
                     );
                     // If the block is too short vertically, force stacking to avoid cramped side-by-side layout
                     const forceStackByHeight =
@@ -945,9 +945,9 @@ const DayColumn: FC<DayColumnProps> = ({
                     if (forceStackByHeight && b.colIndex > 0) {
                         return null; // only render the first column when forced to stack
                     }
-                    // Extra right padding for room label shown under icons on desktop
+                    // Extra right padding for indicators/icons on desktop
                     const roomPadRightPx =
-                        !isMobile && room ? (isClassTimetable ? 20 : 88) : 0;
+                        !isMobile && room ? (isClassTimetable ? 20 : 24) : 0;
                     // Allow a more compact mobile layout: lower height threshold for previews
                     // Previously used to decide rendering of inline info previews; now removed.
                     // const MIN_PREVIEW_HEIGHT = isMobile ? 44 : 56;
@@ -957,8 +957,8 @@ const DayColumn: FC<DayColumnProps> = ({
                     const MIN_TIME_DISPLAY_HEIGHT_WRAPPED_SINGLE = isMobile
                         ? 0 // timeframe is not shown on mobile
                         : isClassTimetable
-                        ? 64
-                        : 80;
+                          ? 64
+                          : 80;
 
                     const availableSpace = heightPx - reservedBottomPx;
 
@@ -1002,14 +1002,14 @@ const DayColumn: FC<DayColumnProps> = ({
                         lessonWidthPx -
                             horizontalPadding -
                             contentPadRight -
-                            contentPadLeft
+                            contentPadLeft,
                     );
                     // Content height = heightPx - vertical padding - reservedBottomPx
                     // Use tighter vertical padding only when truly cramped
-                    const verticalPadding = isCrampedSideBySide ? 4 : 24;
+                    const verticalPadding = isCrampedSideBySide ? 4 : 16;
                     const contentHeightPx = Math.max(
                         0,
-                        heightPx - verticalPadding - reservedBottomPx
+                        heightPx - verticalPadding - reservedBottomPx,
                     );
 
                     // Auto contrast decision based on middle gradient (via) luminance heuristics
@@ -1036,7 +1036,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                 t.orgname &&
                                 (!t.name ||
                                     t.name === '---' ||
-                                    t.name.trim() === '')
+                                    t.name.trim() === ''),
                         ) ?? false;
 
                     // Hierarchical secondary info for single-line layouts:
@@ -1160,8 +1160,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                 cancelled
                                     ? 'border-[3px] border-rose-600 dark:border-rose-500'
                                     : irregular
-                                    ? 'border-[3px] border-emerald-500 dark:border-emerald-400'
-                                    : 'ring-1 ring-slate-900/10 dark:ring-white/15'
+                                      ? 'border-[3px] border-emerald-500 dark:border-emerald-400'
+                                      : 'ring-1 ring-slate-900/10 dark:ring-white/15'
                             }`}
                             style={{
                                 top: topPx,
@@ -1170,7 +1170,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                 width: `${widthPct}%`,
                                 background: statusOverlay
                                     ? `${statusOverlay}, ${gradientToSmoothCss(
-                                          gradient
+                                          gradient,
                                       )}`
                                     : gradientToSmoothCss(gradient),
                                 // Mobile-only reduced padding is handled by CSS p-2.5 (10px) vs sm:p-3 (12px)
@@ -1179,7 +1179,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                     '0 1px 2px -1px rgba(0,0,0,0.25), 0 2px 6px -1px rgba(0,0,0,0.25)',
                             }}
                             title={`${fmtHM(b.startMin)}–${fmtHM(
-                                b.endMin
+                                b.endMin,
                             )} | ${subject} ${room ? `| ${room}` : ''} ${
                                 teacher ? `| ${teacher}` : ''
                             }`}
@@ -1433,7 +1433,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                     title="Multiple information items - click lesson for details"
                                                 >
                                                     <EllipsisIcon className="w-2 h-2 text-white" />
-                                                </div>
+                                                </div>,
                                             );
                                         } else {
                                             // For merged lessons or single lessons with 1 info type, show individual badges
@@ -1454,7 +1454,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 clipRule="evenodd"
                                                             />
                                                         </svg>
-                                                    </div>
+                                                    </div>,
                                                 );
                                             if (hasInfo)
                                                 badges.push(
@@ -1473,7 +1473,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 clipRule="evenodd"
                                                             />
                                                         </svg>
-                                                    </div>
+                                                    </div>,
                                                 );
                                             if (hasLstext)
                                                 badges.push(
@@ -1488,7 +1488,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                         >
                                                             <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h8.5a2 2 0 001.414-.586l2.5-2.5A2 2 0 0017 12.5V5a2 2 0 00-2-2H4zm9 10h1.586L13 14.586V13z" />
                                                         </svg>
-                                                    </div>
+                                                    </div>,
                                                 );
                                             if (hasExams)
                                                 badges.push(
@@ -1507,7 +1507,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                 clipRule="evenodd"
                                                             />
                                                         </svg>
-                                                    </div>
+                                                    </div>,
                                                 );
                                         }
 
@@ -1616,8 +1616,8 @@ const DayColumn: FC<DayColumnProps> = ({
                                             isCrampedSideBySide
                                                 ? 0.4
                                                 : isClassTimetable
-                                                ? 0.8
-                                                : 0.88;
+                                                  ? 0.8
+                                                  : 0.88;
                                         return (
                                             <AdaptiveLessonContent
                                                 availableHeight={
@@ -1661,7 +1661,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                         {l.te.map(
                                                                             (
                                                                                 t,
-                                                                                i
+                                                                                i,
                                                                             ) => (
                                                                                 <span
                                                                                     key={
@@ -1677,7 +1677,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                                         t.name
                                                                                     }
                                                                                 </span>
-                                                                            )
+                                                                            ),
                                                                         )}
                                                                     </div>
                                                                 )}
@@ -1738,7 +1738,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                         {l.te.map(
                                                                             (
                                                                                 t,
-                                                                                i
+                                                                                i,
                                                                             ) => (
                                                                                 <span
                                                                                     key={
@@ -1754,43 +1754,62 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                                         t.name
                                                                                     }
                                                                                 </span>
-                                                                            )
+                                                                            ),
                                                                         )}
                                                                     </div>
                                                                 )}
                                                             {inlineRoomBlock}
                                                         </>
                                                     ),
-                                                    // Level 2: Compact - Subject + Teacher inline, Room below
+                                                    // Level 2: Compact - Subject in row 1, Room + Teacher in row 2
                                                     compact: (
                                                         <>
-                                                            <div className="flex flex-wrap items-baseline gap-x-2">
-                                                                <div
-                                                                    className={`font-semibold leading-tight text-[13px] ${
-                                                                        cancelled
-                                                                            ? 'lesson-cancelled-subject'
-                                                                            : ''
-                                                                    }`}
-                                                                >
-                                                                    {
-                                                                        displaySubject
-                                                                    }
-                                                                </div>
+                                                            <div
+                                                                className={`font-semibold leading-tight text-[13px] ${
+                                                                    cancelled
+                                                                        ? 'lesson-cancelled-subject'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {displaySubject}
+                                                            </div>
+                                                            <div className="flex flex-wrap items-baseline gap-x-2 text-[12px] leading-tight mt-0.5">
+                                                                {room && (
+                                                                    <div
+                                                                        className={`flex items-center gap-x-1 ${
+                                                                            cancelled
+                                                                                ? 'lesson-cancelled-room'
+                                                                                : 'opacity-95'
+                                                                        }`}
+                                                                    >
+                                                                        <span
+                                                                            className={
+                                                                                roomInfoMeta?.hasChanges
+                                                                                    ? 'change-highlight-inline'
+                                                                                    : undefined
+                                                                            }
+                                                                        >
+                                                                            {
+                                                                                room
+                                                                            }
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 {l.te &&
                                                                     l.te
                                                                         .length >
                                                                         0 && (
                                                                         <div
-                                                                            className={`leading-tight text-[12px] flex flex-wrap gap-x-1 ${
+                                                                            className={`flex items-center gap-x-1 ${
                                                                                 cancelled
                                                                                     ? 'lesson-cancelled-teacher'
                                                                                     : ''
-                                                                            } mb-0.5`}
+                                                                            }`}
                                                                         >
                                                                             {l.te.map(
                                                                                 (
                                                                                     t,
-                                                                                    i
+                                                                                    i,
                                                                                 ) => (
                                                                                     <span
                                                                                         key={
@@ -1806,12 +1825,11 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                                             t.name
                                                                                         }
                                                                                     </span>
-                                                                                )
+                                                                                ),
                                                                             )}
                                                                         </div>
                                                                     )}
                                                             </div>
-                                                            {inlineRoomBlock}
                                                         </>
                                                     ),
                                                     // Level 3: Subject + Room only (no teacher) - good for side-by-side
@@ -1912,7 +1930,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                         {l.te.map(
                                                                             (
                                                                                 t,
-                                                                                i
+                                                                                i,
                                                                             ) => (
                                                                                 <span
                                                                                     key={
@@ -1928,7 +1946,7 @@ const DayColumn: FC<DayColumnProps> = ({
                                                                                         t.name
                                                                                     }
                                                                                 </span>
-                                                                            )
+                                                                            ),
                                                                         )}
                                                                     </div>
                                                                 )}
@@ -2047,7 +2065,7 @@ const ResponsiveTimeFrame: FC<{
         const timeEl = ref.current;
         if (!timeEl) return;
         const lessonEl = timeEl.closest(
-            '.timetable-lesson'
+            '.timetable-lesson',
         ) as HTMLElement | null;
         if (!lessonEl) return;
 
@@ -2083,7 +2101,7 @@ const ResponsiveTimeFrame: FC<{
                 // Reserve ~30px for potential indicators / internal padding to push earlier wrapping.
                 const available = Math.max(
                     0,
-                    columnWidth - padLeft - padRight - 30
+                    columnWidth - padLeft - padRight - 30,
                 );
 
                 let shouldWrap = stableWrappedRef.current;
