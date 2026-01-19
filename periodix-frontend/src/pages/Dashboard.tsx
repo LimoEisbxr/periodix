@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    lazy,
+    Suspense,
+} from 'react';
 import Timetable from '../components/Timetable';
 import MoonIcon from '../components/MoonIcon';
 import NotificationBell from '../components/NotificationBell';
@@ -66,6 +74,7 @@ type SearchResult = {
 type FallbackNoticeState = {
     reason: TimetableFallbackReason | 'UNKNOWN';
     lastUpdated?: string | null;
+    lastChecked?: string | null;
     errorCode?: string | number;
     errorMessage?: string;
 };
@@ -104,7 +113,7 @@ export default function Dashboard({
     const [availableClasses, setAvailableClasses] = useState<ClassInfo[]>([]);
     const primaryClass = useMemo(
         () => availableClasses[0] ?? null,
-        [availableClasses]
+        [availableClasses],
     );
     // Track loading & error state for search to avoid flicker on mobile
     const [searchLoading, setSearchLoading] = useState(false);
@@ -135,7 +144,7 @@ export default function Dashboard({
         if (mobileSearchOpen) {
             const t = setTimeout(() => {
                 const el = document.getElementById(
-                    'mobile-search-input'
+                    'mobile-search-input',
                 ) as HTMLInputElement | null;
                 el?.focus();
             }, 30);
@@ -149,6 +158,8 @@ export default function Dashboard({
     const [holidays, setHolidays] = useState<Holiday[]>([]);
     const [fallbackNotice, setFallbackNotice] =
         useState<FallbackNoticeState | null>(null);
+    const [globalFallbackNotice, setGlobalFallbackNotice] =
+        useState<FallbackNoticeState | null>(null);
     const fallbackDismissedRef = useRef<Set<string>>(new Set());
     const fallbackKeyRef = useRef<string | null>(null);
     const classTimetableCacheRef = useRef<
@@ -156,14 +167,14 @@ export default function Dashboard({
     >(new Map());
     const [isAbsencePanelOpen, setIsAbsencePanelOpen] = useState(false);
     const [absenceData, setAbsenceData] = useState<AbsenceResponse | null>(
-        null
+        null,
     );
     const [absencesLoading, setAbsencesLoading] = useState(false);
     const [absencesError, setAbsencesError] = useState<string | null>(null);
     const [absencePreset, setAbsencePreset] =
         useState<AbsencePreset>('schoolYear');
     const [absenceRange, setAbsenceRange] = useState<DateRange>(() =>
-        getAbsencePresetRange('schoolYear')
+        getAbsencePresetRange('schoolYear'),
     );
 
     // Initialize timetable cache hook
@@ -186,11 +197,11 @@ export default function Dashboard({
     const weekStartDate = useMemo(() => startOfWeek(new Date(start)), [start]);
     const weekStartStr = useMemo(
         () => fmtLocal(weekStartDate),
-        [weekStartDate]
+        [weekStartDate],
     );
     const weekEndStr = useMemo(
         () => fmtLocal(addDays(weekStartDate, 6)),
-        [weekStartDate]
+        [weekStartDate],
     );
 
     // Function to get cached timetable data for adjacent weeks
@@ -216,10 +227,16 @@ export default function Dashboard({
             return getCachedData(
                 targetUserId,
                 targetWeekStartStr,
-                targetWeekEndStr
+                targetWeekEndStr,
             );
         },
-        [weekStartDate, selectedUser?.id, user.id, getCachedData, selectedClass]
+        [
+            weekStartDate,
+            selectedUser?.id,
+            user.id,
+            getCachedData,
+            selectedClass,
+        ],
     );
     // Short auto-retry countdown for rate limit (429)
     const [retrySeconds, setRetrySeconds] = useState<number | null>(null);
@@ -261,7 +278,7 @@ export default function Dashboard({
                 setAbsencesLoading(false);
             }
         },
-        [token, absencePreset]
+        [token, absencePreset],
     );
 
     const handleAbsencePresetChange = useCallback(
@@ -270,7 +287,7 @@ export default function Dashboard({
             const range = getAbsencePresetRange(preset);
             loadAbsences(range);
         },
-        [loadAbsences]
+        [loadAbsences],
     );
 
     const presetReference = new Date();
@@ -303,25 +320,55 @@ export default function Dashboard({
     // Calculate the calendar week number
     const calendarWeek = useMemo(
         () => getISOWeekNumber(weekStartDate),
-        [weekStartDate]
+        [weekStartDate],
     );
 
     const fallbackBannerTimestamp = useMemo(
-        () => formatTimestamp(mine?.lastUpdated),
-        [mine?.lastUpdated, formatTimestamp]
+        () =>
+            formatTimestamp(
+                mine?.stale
+                    ? mine?.lastUpdated
+                    : globalFallbackNotice?.lastUpdated,
+            ),
+        [
+            mine?.stale,
+            mine?.lastUpdated,
+            globalFallbackNotice?.lastUpdated,
+            formatTimestamp,
+        ],
+    );
+
+    const fallbackBannerCheckedTimestamp = useMemo(
+        () => formatTimestamp(globalFallbackNotice?.lastChecked),
+        [globalFallbackNotice?.lastChecked, formatTimestamp],
     );
 
     const fallbackBannerMessage = useMemo(() => {
-        if (!mine?.cached || !mine?.stale) return null;
-        if (mine.fallbackReason === 'BAD_CREDENTIALS') {
+        const isStale = !!(mine?.cached && mine?.stale);
+        const notice = isStale
+            ? { reason: mine?.fallbackReason }
+            : globalFallbackNotice;
+
+        if (!notice) return null;
+
+        const reason = isStale
+            ? mine?.fallbackReason
+            : globalFallbackNotice?.reason;
+
+        if (reason === 'BAD_CREDENTIALS') {
             return 'Untis reported invalid credentials. If you recently changed your Untis password, please update it in Settings.';
         }
         return 'Untis did not respond. Their servers might be offline or your Untis password may have changed. We will refresh automatically once Untis is reachable.';
-    }, [mine]);
+    }, [mine, globalFallbackNotice]);
 
     const fallbackNoticeTimestamp = useMemo(
         () => formatTimestamp(fallbackNotice?.lastUpdated || null),
-        [fallbackNotice?.lastUpdated, formatTimestamp]
+        [fallbackNotice?.lastUpdated, formatTimestamp],
+    );
+
+    const fallbackNoticeCheckedTimestamp = useMemo(
+        () => formatTimestamp(fallbackNotice?.lastChecked || null),
+        [fallbackNotice?.lastChecked, formatTimestamp],
     );
 
     const fallbackModalMessage = useMemo(() => {
@@ -337,17 +384,43 @@ export default function Dashboard({
         try {
             // Track timetable view
             trackActivity(token, 'timetable_view', { userId: user.id }).catch(
-                console.error
+                console.error,
             );
 
-            const res = await getTimetableData(
+            const { data: res, fromCache } = await getTimetableData(
                 user.id,
                 user.id,
                 weekStartDate,
                 token,
-                true
+                true,
             );
             setMine(res);
+
+            // Update global fallback notice if it's a fresh fetch
+            if (!fromCache) {
+                if (res.stale) {
+                    setGlobalFallbackNotice({
+                        reason:
+                            (res.fallbackReason as TimetableFallbackReason) ||
+                            'UNKNOWN',
+                        lastUpdated: res.lastUpdated,
+                        lastChecked: new Date().toISOString(),
+                        errorCode: res.errorCode,
+                        errorMessage: res.errorMessage,
+                    });
+                } else {
+                    setGlobalFallbackNotice(null);
+                    fallbackDismissedRef.current.clear();
+                }
+            } else if (res.stale) {
+                // If from cache but we know it's stale (e.g. background fetch triggered it),
+                // we can still update the checked time if we have a global notice
+                setGlobalFallbackNotice((prev) =>
+                    prev
+                        ? { ...prev, lastChecked: new Date().toISOString() }
+                        : null,
+                );
+            }
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'Failed to load';
             // Auto-retry if rate-limited; avoid replacing timetable with an empty one
@@ -356,7 +429,7 @@ export default function Dashboard({
                 if (parsed?.status === 429) {
                     const retryAfterSec = Math.max(
                         1,
-                        Number(parsed?.retryAfter || 0) || 1
+                        Number(parsed?.retryAfter || 0) || 1,
                     );
                     setRetrySeconds(retryAfterSec);
                     setLoadError(null); // handled by retry banner below
@@ -400,14 +473,38 @@ export default function Dashboard({
                     viewedUserId: userId,
                 }).catch(console.error);
 
-                const res = await getTimetableData(
+                const { data: res, fromCache } = await getTimetableData(
                     user.id,
                     userId,
                     weekStartDate,
                     token,
-                    false
+                    false,
                 );
                 setMine(res);
+
+                // Update global fallback notice if it's a fresh fetch
+                if (!fromCache) {
+                    if (res.stale) {
+                        setGlobalFallbackNotice({
+                            reason:
+                                (res.fallbackReason as TimetableFallbackReason) ||
+                                'UNKNOWN',
+                            lastUpdated: res.lastUpdated,
+                            lastChecked: new Date().toISOString(),
+                            errorCode: res.errorCode,
+                            errorMessage: res.errorMessage,
+                        });
+                    } else {
+                        setGlobalFallbackNotice(null);
+                        fallbackDismissedRef.current.clear();
+                    }
+                } else if (res.stale) {
+                    setGlobalFallbackNotice((prev) =>
+                        prev
+                            ? { ...prev, lastChecked: new Date().toISOString() }
+                            : null,
+                    );
+                }
             } catch (e) {
                 const msg = e instanceof Error ? e.message : 'Failed to load';
                 // Auto-retry if rate-limited; avoid replacing timetable with an empty one
@@ -416,7 +513,7 @@ export default function Dashboard({
                     if (parsed?.status === 429) {
                         const retryAfterSec = Math.max(
                             1,
-                            Number(parsed?.retryAfter || 0) || 1
+                            Number(parsed?.retryAfter || 0) || 1,
                         );
                         setRetrySeconds(retryAfterSec);
                         setLoadError(null);
@@ -447,7 +544,7 @@ export default function Dashboard({
             token,
             weekStartStr,
             weekEndStr,
-        ]
+        ],
     );
 
     const loadClass = useCallback(
@@ -478,7 +575,7 @@ export default function Dashboard({
                             token,
                             classId,
                             s,
-                            e
+                            e,
                         );
                         classTimetableCacheRef.current.set(k, {
                             data: res,
@@ -509,9 +606,26 @@ export default function Dashboard({
                     token,
                     classId,
                     weekStartStr,
-                    weekEndStr
+                    weekEndStr,
                 );
                 setMine(res);
+
+                // Update global fallback notice
+                if (res.stale) {
+                    setGlobalFallbackNotice({
+                        reason:
+                            (res.fallbackReason as TimetableFallbackReason) ||
+                            'UNKNOWN',
+                        lastUpdated: res.lastUpdated,
+                        lastChecked: new Date().toISOString(),
+                        errorCode: res.errorCode,
+                        errorMessage: res.errorMessage,
+                    });
+                } else {
+                    setGlobalFallbackNotice(null);
+                    fallbackDismissedRef.current.clear();
+                }
+
                 classTimetableCacheRef.current.set(cacheKey, {
                     data: res,
                     timestamp: Date.now(),
@@ -521,7 +635,7 @@ export default function Dashboard({
 
                 if (classTimetableCacheRef.current.size > 20) {
                     const oldestKey = Array.from(
-                        classTimetableCacheRef.current.entries()
+                        classTimetableCacheRef.current.entries(),
                     ).sort((a, b) => a[1].timestamp - b[1].timestamp)[0]?.[0];
                     if (oldestKey)
                         classTimetableCacheRef.current.delete(oldestKey);
@@ -534,7 +648,7 @@ export default function Dashboard({
                     if (parsed?.status === 429) {
                         const retryAfterSec = Math.max(
                             1,
-                            Number(parsed?.retryAfter || 0) || 1
+                            Number(parsed?.retryAfter || 0) || 1,
                         );
                         setRetrySeconds(retryAfterSec);
                         setLoadError(null);
@@ -556,7 +670,7 @@ export default function Dashboard({
                 });
             }
         },
-        [token, weekStartStr, weekEndStr, user.id]
+        [token, weekStartStr, weekEndStr, user.id],
     );
 
     useEffect(() => {
@@ -576,13 +690,9 @@ export default function Dashboard({
             return;
         }
         if (mine.cached && mine.stale) {
-            const key = [
-                mine.userId,
-                mine.rangeStart ?? '',
-                mine.rangeEnd ?? '',
-                mine.lastUpdated ?? '',
-                mine.fallbackReason ?? 'UNKNOWN',
-            ].join('|');
+            const key = [mine.userId, mine.fallbackReason ?? 'UNKNOWN'].join(
+                '|',
+            );
             fallbackKeyRef.current = key;
             if (!fallbackDismissedRef.current.has(key)) {
                 setFallbackNotice({
@@ -591,6 +701,7 @@ export default function Dashboard({
                             | TimetableFallbackReason
                             | undefined) ?? 'UNKNOWN',
                     lastUpdated: mine.lastUpdated,
+                    lastChecked: globalFallbackNotice?.lastChecked,
                     errorCode: mine.errorCode,
                     errorMessage: mine.errorMessage,
                 });
@@ -598,7 +709,6 @@ export default function Dashboard({
         } else {
             fallbackKeyRef.current = null;
             setFallbackNotice(null);
-            fallbackDismissedRef.current.clear();
         }
     }, [mine]);
 
@@ -693,7 +803,7 @@ export default function Dashboard({
                         lessonName,
                         color,
                         viewingUserId,
-                        offset
+                        offset,
                     );
                     setLessonColors((prev) => ({
                         ...prev,
@@ -734,7 +844,7 @@ export default function Dashboard({
                                     delete obj[lessonName];
                                     localStorage.setItem(
                                         k,
-                                        JSON.stringify(obj)
+                                        JSON.stringify(obj),
                                     );
                                 }
                             }
@@ -797,7 +907,7 @@ export default function Dashboard({
                 setTimeout(() => setColorError(null), 5000);
             }
         },
-        [token, selectedUser?.id, user.isAdmin]
+        [token, selectedUser?.id, user.isAdmin],
     );
 
     const handleDismissFallback = useCallback(() => {
@@ -823,7 +933,7 @@ export default function Dashboard({
                 try {
                     // Read user settings from local storage cache written by settings screen if present
                     const raw = localStorage.getItem(
-                        'periodix:notificationSettings'
+                        'periodix:notificationSettings',
                     );
                     const settings = raw ? JSON.parse(raw) : null;
                     const perm = Notification?.permission;
@@ -903,7 +1013,7 @@ export default function Dashboard({
                 try {
                     localStorage.setItem(
                         'periodix:notificationSettings',
-                        JSON.stringify(data.settings)
+                        JSON.stringify(data.settings),
                     );
                 } catch {
                     // ignore localStorage errors
@@ -939,20 +1049,20 @@ export default function Dashboard({
                     endpoint: sub.endpoint,
                     p256dh: btoa(
                         String.fromCharCode(
-                            ...new Uint8Array(sub.getKey('p256dh')!)
-                        )
+                            ...new Uint8Array(sub.getKey('p256dh')!),
+                        ),
                     ),
                     auth: btoa(
                         String.fromCharCode(
-                            ...new Uint8Array(sub.getKey('auth')!)
-                        )
+                            ...new Uint8Array(sub.getKey('auth')!),
+                        ),
                     ),
                     userAgent: navigator.userAgent,
                     deviceType: /mobi/i.test(navigator.userAgent)
                         ? 'mobile'
                         : /tablet|ipad|playbook|silk/i.test(navigator.userAgent)
-                        ? 'tablet'
-                        : 'desktop',
+                          ? 'tablet'
+                          : 'desktop',
                 });
 
                 if (!settings.pushNotificationsEnabled) {
@@ -984,11 +1094,11 @@ export default function Dashboard({
                     try {
                         localStorage.setItem(
                             'periodix:hiddenSubjects:self',
-                            JSON.stringify(prefs.hiddenSubjects)
+                            JSON.stringify(prefs.hiddenSubjects),
                         );
                         // trigger re-filter if Timetable is mounted
                         window.dispatchEvent(
-                            new Event('periodix:hiddenSubjects:changed')
+                            new Event('periodix:hiddenSubjects:changed'),
                         );
                     } catch {
                         // ignore storage errors
@@ -996,7 +1106,7 @@ export default function Dashboard({
                 }
                 // Control onboarding: show only if not completed on server and not marked locally
                 const localDone = localStorage.getItem(
-                    'periodix-onboarding-completed'
+                    'periodix-onboarding-completed',
                 );
                 if (!prefs.onboardingCompleted && !localDone) {
                     timer = setTimeout(() => {
@@ -1007,7 +1117,7 @@ export default function Dashboard({
             .catch(() => {
                 // Fallback to local behavior on failure
                 const hasSeenOnboarding = localStorage.getItem(
-                    'periodix-onboarding-completed'
+                    'periodix-onboarding-completed',
                 );
                 if (!hasSeenOnboarding) {
                     timer = setTimeout(() => {
@@ -1063,12 +1173,12 @@ export default function Dashboard({
                 // Fetch users (students only - search is restricted to user's class on backend)
                 const usersResponse = await fetch(
                     `${base}/api/users/search?q=${encodeURIComponent(
-                        currentQuery
+                        currentQuery,
                     )}`,
                     {
                         headers: { Authorization: `Bearer ${token}` },
                         signal: ac.signal,
-                    }
+                    },
                 );
                 const usersData = usersResponse.ok
                     ? await usersResponse.json()
@@ -1099,7 +1209,7 @@ export default function Dashboard({
                     return; // superseded
                 if (!cancelled) {
                     setSearchError(
-                        e instanceof Error ? e.message : 'Search failed'
+                        e instanceof Error ? e.message : 'Search failed',
                     );
                     // Retain previous successful results (no setResults) to avoid disappear
                 }
@@ -1121,7 +1231,7 @@ export default function Dashboard({
         }
         // Persist to server (best effort)
         updateUserPreferences(token, { onboardingCompleted: true }).catch(
-            () => undefined
+            () => undefined,
         );
         setIsOnboardingOpen(false);
     };
@@ -1218,7 +1328,7 @@ export default function Dashboard({
 
             setStart(nextStartStr);
         },
-        [start, selectedClass, selectedUser, user.id, getCachedData]
+        [start, selectedClass, selectedUser, user.id, getCachedData],
     );
 
     useEffect(() => {
@@ -1269,7 +1379,7 @@ export default function Dashboard({
                             notifications={notifications}
                             onClick={() =>
                                 setIsNotificationPanelOpen(
-                                    !isNotificationPanelOpen
+                                    !isNotificationPanelOpen,
                                 )
                             }
                             className="mr-1"
@@ -1324,7 +1434,7 @@ export default function Dashboard({
                                             setIsSettingsModalOpen(true);
                                             trackActivity(
                                                 token,
-                                                'settings'
+                                                'settings',
                                             ).catch(console.error);
                                         }}
                                     >
@@ -1358,7 +1468,7 @@ export default function Dashboard({
                                         onClick={() => {
                                             setIsMenuOpen(false);
                                             setIsAbsencePanelOpen(
-                                                !isAbsencePanelOpen
+                                                !isAbsencePanelOpen,
                                             );
                                         }}
                                     >
@@ -1460,7 +1570,7 @@ export default function Dashboard({
                                     className="btn-secondary px-8 py-3 text-base font-medium"
                                     onClick={() => {
                                         const prevWeek = fmtLocal(
-                                            addDays(new Date(start), -7)
+                                            addDays(new Date(start), -7),
                                         );
                                         setStart(prevWeek);
                                     }}
@@ -1481,7 +1591,7 @@ export default function Dashboard({
                                     className="btn-secondary px-8 py-3 text-base font-medium"
                                     onClick={() => {
                                         const nextWeek = fmtLocal(
-                                            addDays(new Date(start), 7)
+                                            addDays(new Date(start), 7),
                                         );
                                         setStart(nextWeek);
                                     }}
@@ -1570,24 +1680,24 @@ export default function Dashboard({
                                                                 className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                                                                 onClick={() => {
                                                                     setSelectedUser(
-                                                                        r
+                                                                        r,
                                                                     );
                                                                     setSelectedClass(
-                                                                        null
+                                                                        null,
                                                                     );
                                                                     setQueryText(
                                                                         r.displayName ||
-                                                                            r.username
+                                                                            r.username,
                                                                     );
                                                                     setResults(
-                                                                        []
+                                                                        [],
                                                                     );
                                                                     if (
                                                                         r.id !==
                                                                         user.id
                                                                     )
                                                                         loadUser(
-                                                                            r.id
+                                                                            r.id,
                                                                         );
                                                                     else
                                                                         loadMine();
@@ -1825,6 +1935,16 @@ export default function Dashboard({
                                         <span className="text-sm opacity-90">
                                             Last synced{' '}
                                             {fallbackBannerTimestamp}.
+                                            {fallbackBannerCheckedTimestamp && (
+                                                <span className="opacity-75">
+                                                    {' '}
+                                                    Checked{' '}
+                                                    {
+                                                        fallbackBannerCheckedTimestamp
+                                                    }
+                                                    .
+                                                </span>
+                                            )}
                                         </span>
                                     )}
                                     {fallbackBannerMessage && (
@@ -2213,6 +2333,13 @@ export default function Dashboard({
                         {fallbackNoticeTimestamp && (
                             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                                 Last synced {fallbackNoticeTimestamp}.
+                                {fallbackNoticeCheckedTimestamp && (
+                                    <>
+                                        {' '}
+                                        Checked {fallbackNoticeCheckedTimestamp}
+                                        .
+                                    </>
+                                )}
                             </p>
                         )}
                         {fallbackNotice.errorMessage && (
