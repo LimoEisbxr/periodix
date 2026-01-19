@@ -487,7 +487,7 @@ export default function Timetable({
             // Once settled specifically on Today's week, keep visible for a bit then fade
             const tid = setTimeout(() => {
                 setIsHighlightVisible(false);
-            }, 700);
+            }, 450);
             return () => clearTimeout(tid);
         } else {
             // Settled on a week that isn't Today (but Today is still in the track buffer)
