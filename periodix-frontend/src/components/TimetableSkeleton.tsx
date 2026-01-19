@@ -1,10 +1,11 @@
 import type { FC } from 'react';
 import { useEffect, useState, useMemo } from 'react';
-import { isMobileViewport } from '../utils/responsive';
+import { MOBILE_MEDIA_QUERY, isMobileViewport } from '../utils/responsive';
+import TimeAxis from './TimeAxis';
 
 // Mulberry32 seeded PRNG - better distribution than sin-based
 function createRandom(seed: number) {
-    let t = seed + 0x6D2B79F5;
+    let t = seed + 0x6d2b79f5;
     return () => {
         t = Math.imul(t ^ (t >>> 15), t | 1);
         t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -24,10 +25,19 @@ const TimetableSkeleton: FC = () => {
     const END_MIN = 17 * 60 + 15; // 17:15
     const totalMinutes = END_MIN - START_MIN;
 
-    const [SCALE, setSCALE] = useState<number>(1);
-    const [axisWidth, setAxisWidth] = useState<number>(56);
-    const [BOTTOM_PAD_PX, setBOTTOM_PAD_PX] = useState(12);
-    const [isMobile, setIsMobile] = useState(false);
+    const initialMobile =
+        typeof window !== 'undefined'
+            ? window.matchMedia(MOBILE_MEDIA_QUERY).matches
+            : false;
+    const MOBILE_DEFAULT_SCALE = 660 / totalMinutes;
+
+    const [SCALE, setSCALE] = useState<number>(
+        initialMobile ? MOBILE_DEFAULT_SCALE : 1,
+    );
+    const [axisWidth, setAxisWidth] = useState<number>(initialMobile ? 44 : 56);
+    const [isMobile, setIsMobile] = useState(initialMobile);
+    const [BOTTOM_PAD_PX, setBOTTOM_PAD_PX] = useState(initialMobile ? 6 : 14);
+    const [DAY_HEADER_PX, setDAY_HEADER_PX] = useState(initialMobile ? 40 : 32);
 
     useEffect(() => {
         function computeScale() {
@@ -39,18 +49,21 @@ const TimetableSkeleton: FC = () => {
             if (mobile) {
                 const targetHeight = Math.min(
                     880,
-                    Math.max(660, Math.floor(vh * 0.9))
+                    Math.max(660, Math.floor(vh * 0.9)),
                 );
                 setSCALE(targetHeight / totalMinutes);
                 setAxisWidth(vw < 400 ? 40 : 44);
                 setBOTTOM_PAD_PX(6);
+                setDAY_HEADER_PX(40);
             } else {
                 const targetHeight = Math.max(560, Math.floor(vh * 0.78));
                 setSCALE(targetHeight / totalMinutes);
                 setAxisWidth(56);
                 setBOTTOM_PAD_PX(14);
+                setDAY_HEADER_PX(32);
             }
         }
+        // Verify dimensions on mount as initialLayout from useMemo might be based on stale/pre-standalone PWA dimensions
         computeScale();
         window.addEventListener('resize', computeScale);
         return () => window.removeEventListener('resize', computeScale);
@@ -73,34 +86,34 @@ const TimetableSkeleton: FC = () => {
         ];
 
         // Create blocks for 5 days with randomized patterns
-        const blocks: { 
-            day: number; 
-            startMin: number; 
-            endMin: number; 
+        const blocks: {
+            day: number;
+            startMin: number;
+            endMin: number;
             isDouble?: boolean;
             widthPercent: number;
             contentWidthPercent: number;
             animationDelay: number;
         }[] = [];
-        
+
         for (let day = 0; day < 5; day++) {
             // Create a seeded random generator unique per day and session
             const rand = createRandom(SKELETON_SEED + day * 97 + 13);
-            
+
             // Decide how many lessons to skip for this day (0-2)
             const skipCount = Math.floor(rand() * 3);
             const skipIndices = new Set<number>();
-            
+
             // Pick which periods to skip (never skip first period)
             while (skipIndices.size < skipCount) {
                 const idx = 1 + Math.floor(rand() * (periods.length - 1));
                 skipIndices.add(idx);
             }
-            
+
             // Decide how many double lessons on this day (0-2, ~70% chance of at least one)
-            const numDoubles = rand() < 0.3 ? 0 : (rand() < 0.5 ? 1 : 2);
+            const numDoubles = rand() < 0.3 ? 0 : rand() < 0.5 ? 1 : 2;
             const doubleStartIndices = new Set<number>();
-            
+
             // Pick which periods start a double lesson
             let attempts = 0;
             while (doubleStartIndices.size < numDoubles && attempts < 10) {
@@ -116,16 +129,16 @@ const TimetableSkeleton: FC = () => {
                 }
                 attempts++;
             }
-            
+
             const mergedIndices = new Set<number>();
             for (const idx of doubleStartIndices) {
                 mergedIndices.add(idx + 1);
             }
-            
+
             for (let i = 0; i < periods.length; i++) {
                 // Skip this period if marked for skipping or merged into a double
                 if (skipIndices.has(i) || mergedIndices.has(i)) continue;
-                
+
                 // If this is the start of a double lesson
                 if (doubleStartIndices.has(i)) {
                     blocks.push({
@@ -139,7 +152,7 @@ const TimetableSkeleton: FC = () => {
                     });
                     continue;
                 }
-                
+
                 blocks.push({
                     day,
                     startMin: periods[i].start,
@@ -150,37 +163,9 @@ const TimetableSkeleton: FC = () => {
                 });
             }
         }
-        
+
         return blocks;
     }, []);
-
-    // Generate skeleton time labels
-    const timeLabels = useMemo(() => {
-        const labels = ['8:00', '9:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
-        return labels.map((label, i) => ({
-            label,
-            y: ((8 + i) * 60 - START_MIN) * SCALE,
-        }));
-    }, [SCALE, START_MIN]);
-
-    // Generate period numbers for the time axis
-    const periodNumbers = useMemo(() => {
-        return Array.from({ length: 8 }, (_, i) => {
-            const startMin = [
-                7 * 60 + 45, 8 * 60 + 35, 9 * 60 + 35, 10 * 60 + 25,
-                11 * 60 + 25, 12 * 60 + 15, 13 * 60 + 45, 14 * 60 + 35
-            ][i];
-            const endMin = [
-                8 * 60 + 30, 9 * 60 + 20, 10 * 60 + 20, 11 * 60 + 10,
-                12 * 60 + 10, 13 * 60, 14 * 60 + 30, 15 * 60 + 20
-            ][i];
-            const centerMin = (startMin + endMin) / 2;
-            return {
-                number: i + 1,
-                y: (centerMin - START_MIN) * SCALE,
-            };
-        });
-    }, [SCALE, START_MIN]);
 
     // Day names for header
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -221,43 +206,19 @@ const TimetableSkeleton: FC = () => {
             {/* Main timetable body */}
             <div className="overflow-hidden w-full pr-0.5 sm:pr-0">
                 <div className="flex w-full">
-                    {/* Time axis skeleton */}
-                    <div style={{ width: `${axisWidth}px` }}>
-                        <div
-                            className="relative"
-                            style={{ height: timesHeight + BOTTOM_PAD_PX }}
-                        >
-                            <div
-                                className="absolute left-0 right-0"
-                                style={{
-                                    top: 0,
-                                    height: timesHeight + BOTTOM_PAD_PX,
-                                }}
-                            >
-                                <div className="mr-1 ml-0.5 sm:mx-1 h-full rounded-md sm:ring-1 sm:ring-slate-900/10 sm:dark:ring-white/10 sm:border sm:border-slate-300/50 sm:dark:border-slate-600/50 shadow-sm overflow-hidden bg-gradient-to-b from-slate-50/85 via-slate-100/80 to-sky-50/70 dark:bg-slate-800/40 dark:bg-none relative">
-                                    {/* Time labels skeleton */}
-                                    {timeLabels.map((t, i) => (
-                                        <div
-                                            key={i}
-                                            className="absolute left-0 right-0 -translate-y-1/2 flex justify-center"
-                                            style={{ top: t.y }}
-                                        >
-                                            <div className="h-2.5 w-8 rounded bg-slate-300/60 dark:bg-slate-600/60 animate-pulse" />
-                                        </div>
-                                    ))}
-                                    {/* Period numbers skeleton */}
-                                    {periodNumbers.map((p) => (
-                                        <div
-                                            key={p.number}
-                                            className="absolute left-0 right-0 -translate-y-1/2 flex justify-center"
-                                            style={{ top: p.y }}
-                                        >
-                                            <div className="h-5 w-5 rounded bg-slate-200/50 dark:bg-slate-700/50 animate-pulse" />
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
+                    {/* Time axis skeleton - Use real TimeAxis but wrap in a dimmer container */}
+                    <div
+                        style={{ width: `${axisWidth}px` }}
+                        className="opacity-40 grayscale-[0.5]"
+                    >
+                        <TimeAxis
+                            START_MIN={START_MIN}
+                            END_MIN={END_MIN}
+                            SCALE={SCALE}
+                            DAY_HEADER_PX={DAY_HEADER_PX}
+                            BOTTOM_PAD_PX={BOTTOM_PAD_PX}
+                            internalHeaderPx={0}
+                        />
                     </div>
 
                     {/* Day columns skeleton */}
@@ -272,55 +233,67 @@ const TimetableSkeleton: FC = () => {
                                 style={{ height: timesHeight + BOTTOM_PAD_PX }}
                             >
                                 {/* Day column background */}
-                                <div
-                                    className="absolute inset-0 mr-0.5 ml-0.5 sm:mx-0 rounded-md sm:ring-1 sm:ring-slate-900/10 sm:dark:ring-white/10 sm:border sm:border-slate-300/50 sm:dark:border-slate-600/50 shadow-sm overflow-hidden bg-gradient-to-b from-slate-50/85 via-slate-100/80 to-sky-50/70 dark:bg-slate-800/40 dark:bg-none"
-                                />
-                                
+                                <div className="absolute inset-0 mr-0.5 ml-0.5 sm:mx-0 rounded-md sm:ring-1 sm:ring-slate-900/10 sm:dark:ring-white/10 sm:border sm:border-slate-300/50 sm:dark:border-slate-600/50 shadow-sm overflow-hidden bg-gradient-to-b from-slate-50/85 via-slate-100/80 to-sky-50/70 dark:bg-slate-800/40 dark:bg-none" />
+
                                 {/* Skeleton lesson blocks */}
                                 {skeletonBlocks
                                     .filter((b) => b.day === dayIndex)
                                     .map((block, i) => {
-                                        const top = (block.startMin - START_MIN) * SCALE;
-                                        const height = (block.endMin - block.startMin) * SCALE;
+                                        const top =
+                                            (block.startMin - START_MIN) *
+                                            SCALE;
+                                        const height =
+                                            (block.endMin - block.startMin) *
+                                            SCALE;
                                         const PAD = isMobile ? 2 : 4;
                                         const GAP = isMobile ? 1 : 2;
-                                        
+
                                         // Calculate horizontal positioning with randomized width
                                         const widthPct = block.widthPercent;
                                         const leftOffset = (100 - widthPct) / 2;
-                                        
+
                                         return (
                                             <div
                                                 key={i}
                                                 className="absolute rounded-md overflow-hidden"
                                                 style={{
                                                     top: top + PAD,
-                                                    height: Math.max(0, height - PAD * 2 - GAP),
+                                                    height: Math.max(
+                                                        0,
+                                                        height - PAD * 2 - GAP,
+                                                    ),
                                                     left: `${leftOffset + 2}%`,
                                                     right: `${leftOffset + 2}%`,
                                                     animationDelay: `${block.animationDelay}s`,
                                                 }}
                                             >
                                                 {/* Gradient skeleton block */}
-                                                <div 
+                                                <div
                                                     className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 animate-pulse rounded-md"
-                                                    style={{ animationDelay: `${block.animationDelay}s` }}
+                                                    style={{
+                                                        animationDelay: `${block.animationDelay}s`,
+                                                    }}
                                                 />
-                                                
+
                                                 {/* Content skeleton */}
                                                 <div className="relative h-full flex flex-col items-center justify-center gap-1 p-1">
                                                     {/* Subject name placeholder */}
-                                                    <div 
+                                                    <div
                                                         className="rounded bg-white/40 dark:bg-slate-800/40 animate-pulse"
                                                         style={{
                                                             width: `${block.contentWidthPercent}%`,
-                                                            height: block.isDouble ? '14px' : '12px',
+                                                            height: block.isDouble
+                                                                ? '14px'
+                                                                : '12px',
                                                             animationDelay: `${block.animationDelay + 0.1}s`,
                                                         }}
                                                     />
                                                     {/* Room/Teacher placeholder (only for taller blocks) */}
-                                                    {height > (isMobile ? 50 : 60) && (
-                                                        <div 
+                                                    {height >
+                                                        (isMobile
+                                                            ? 50
+                                                            : 60) && (
+                                                        <div
                                                             className="rounded bg-white/30 dark:bg-slate-800/30 animate-pulse"
                                                             style={{
                                                                 width: `${block.contentWidthPercent * 0.7}%`,

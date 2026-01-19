@@ -23,7 +23,7 @@ import {
     getPreviousWorkday,
 } from '../utils/dates';
 import { setLessonColor } from '../api';
-import { isMobileViewport } from '../utils/responsive';
+import { isMobileViewport, MOBILE_MEDIA_QUERY } from '../utils/responsive';
 import LessonModal from './LessonModal';
 import HolidayModal from './HolidayModal';
 import TimeAxis from './TimeAxis';
@@ -83,14 +83,14 @@ export default function Timetable({
     onColorChange?: (
         lessonName: string,
         color: string | null,
-        offset?: number
+        offset?: number,
     ) => void;
     serverLessonOffsets?: Record<string, number>;
     token?: string;
     viewingUserId?: string; // if admin is viewing a student
     onWeekNavigate?: (direction: 'prev' | 'next') => void; // optional external navigation handler
     getAdjacentWeekData?: (
-        direction: 'prev' | 'next'
+        direction: 'prev' | 'next',
     ) => TimetableResponse | null; // function to get cached data for adjacent weeks
     onLessonModalStateChange?: (isOpen: boolean) => void; // callback for onboarding
     isOnboardingActive?: boolean;
@@ -103,11 +103,28 @@ export default function Timetable({
     const START_MIN = 7 * 60 + 40; // 07:40
     const END_MIN = 17 * 60 + 15; // 17:15
     const totalMinutes = END_MIN - START_MIN;
-    const [SCALE, setSCALE] = useState<number>(1);
-    const [axisWidth, setAxisWidth] = useState<number>(56); // dynamic; shrinks on mobile
+
+    // Use synchronous media query to set initial state correctly (avoids layout shift on mobile)
+    // without relying on potentially unstable PWA window dimensions.
+    const initialMobile =
+        typeof window !== 'undefined'
+            ? window.matchMedia(MOBILE_MEDIA_QUERY).matches
+            : false;
+
+    // Default mobile scale estimate: 660px height / totalMinutes
+    // 660 is the minimum clamped height logic used in computeScale
+    const MOBILE_DEFAULT_SCALE = 660 / totalMinutes;
+
+    const [SCALE, setSCALE] = useState<number>(
+        initialMobile ? MOBILE_DEFAULT_SCALE : 1,
+    );
+    const [axisWidth, setAxisWidth] = useState<number>(initialMobile ? 44 : 56);
     const [estimatedDayWidth, setEstimatedDayWidth] = useState<number>(0);
     const [estimatedFocusedDayWidth, setEstimatedFocusedDayWidth] =
         useState<number>(0);
+    // Responsive vertical spacing; mobile gets tighter layout
+    const [BOTTOM_PAD_PX, setBOTTOM_PAD_PX] = useState(initialMobile ? 6 : 14);
+    const [DAY_HEADER_PX, setDAY_HEADER_PX] = useState(initialMobile ? 40 : 32);
     // Single-day focus mode: when set to an ISO date string (yyyy-mm-dd) only that day is shown full-width
     const [focusedDay, setFocusedDay] = useState<string | null>(null);
     // Day view animation state
@@ -138,7 +155,7 @@ export default function Timetable({
             ? (() => {
                   try {
                       const v = new URLSearchParams(window.location.search).get(
-                          'dev'
+                          'dev',
                       );
                       return (
                           !!v &&
@@ -168,7 +185,7 @@ export default function Timetable({
             return (
                 isDeveloperMode ||
                 ['1', 'true', 'yes'].includes(
-                    (q.get('ttdebug') || '').toLowerCase()
+                    (q.get('ttdebug') || '').toLowerCase(),
                 )
             );
         } catch {
@@ -181,7 +198,7 @@ export default function Timetable({
         try {
             localStorage.setItem(
                 'PeriodixDevActive',
-                isDeveloperMode ? '1' : '0'
+                isDeveloperMode ? '1' : '0',
             );
         } catch {
             /* ignore */
@@ -199,7 +216,7 @@ export default function Timetable({
     const [selectedIndexInGroup, setSelectedIndexInGroup] = useState<number>(0);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedHoliday, setSelectedHoliday] = useState<Holiday | null>(
-        null
+        null,
     );
     const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
 
@@ -287,7 +304,7 @@ export default function Timetable({
                 lessonName,
                 color,
                 viewingUserId,
-                offset
+                offset,
             ).catch(() => undefined);
             delete offsetPersistTimers.current[lessonName];
         }, OFFSET_DEBOUNCE_MS);
@@ -315,7 +332,7 @@ export default function Timetable({
                 return s1 < e0 && s0 < e1; // overlap
             });
             overlaps.sort(
-                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime
+                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime,
             );
             const idx = overlaps.findIndex((l) => l.id === lesson.id);
             setSelectedGroup(overlaps.length > 1 ? overlaps : null);
@@ -332,7 +349,7 @@ export default function Timetable({
                 window as Window &
                     typeof globalThis & {
                         onboardingLessonModalStateChange?: (
-                            isOpen: boolean
+                            isOpen: boolean,
                         ) => void;
                     }
             ).onboardingLessonModalStateChange === 'function'
@@ -341,7 +358,7 @@ export default function Timetable({
                 window as Window &
                     typeof globalThis & {
                         onboardingLessonModalStateChange: (
-                            isOpen: boolean
+                            isOpen: boolean,
                         ) => void;
                     }
             ).onboardingLessonModalStateChange(true);
@@ -352,10 +369,6 @@ export default function Timetable({
             onLessonModalStateChange(true);
         }
     };
-
-    // Responsive vertical spacing; mobile gets tighter layout
-    const [BOTTOM_PAD_PX, setBOTTOM_PAD_PX] = useState(12);
-    const [DAY_HEADER_PX, setDAY_HEADER_PX] = useState(28);
 
     useEffect(() => {
         function computeScale() {
@@ -371,7 +384,7 @@ export default function Timetable({
             if (isMobile) {
                 const targetHeight = Math.min(
                     880,
-                    Math.max(660, Math.floor(vh * 0.9))
+                    Math.max(660, Math.floor(vh * 0.9)),
                 );
                 setSCALE(targetHeight / totalMinutes);
                 currentAxisWidth = vw < 400 ? 40 : 44;
@@ -402,6 +415,7 @@ export default function Timetable({
             // Calculate estimated width for focused day view (full available width)
             setEstimatedFocusedDayWidth(availableWidth);
         }
+        // Verify dimensions on mount as initialLayout from useMemo might be based on stale/pre-standalone PWA dimensions
         computeScale();
         window.addEventListener('resize', computeScale);
         return () => window.removeEventListener('resize', computeScale);
@@ -410,7 +424,7 @@ export default function Timetable({
     const monday = startOfWeek(weekStart);
     const days = useMemo(
         () => Array.from({ length: 5 }, (_, i) => addDays(monday, i)),
-        [monday]
+        [monday],
     );
 
     // Multi-week data for sliding animation
@@ -419,12 +433,12 @@ export default function Timetable({
 
     const prevWeekDays = useMemo(
         () => Array.from({ length: 5 }, (_, i) => addDays(prevWeekMonday, i)),
-        [prevWeekMonday]
+        [prevWeekMonday],
     );
 
     const nextWeekDays = useMemo(
         () => Array.from({ length: 5 }, (_, i) => addDays(nextWeekMonday, i)),
-        [nextWeekMonday]
+        [nextWeekMonday],
     );
 
     // Advanced swipe animation for smooth week navigation
@@ -549,14 +563,14 @@ export default function Timetable({
             window.removeEventListener('focus', resetTransientGestureState);
             window.removeEventListener(
                 'beforeunload',
-                resetTransientGestureState
+                resetTransientGestureState,
             );
             window.removeEventListener('unload', resetTransientGestureState);
             document.removeEventListener('resume', resetTransientGestureState);
             document.removeEventListener('pause', resetTransientGestureState);
             window.removeEventListener(
                 'pointercancel',
-                resetTransientGestureState
+                resetTransientGestureState,
             );
         };
     }, []);
@@ -584,11 +598,11 @@ export default function Timetable({
                         attempt: gestureAttachAttempts,
                     });
                 requestAnimationFrame(() =>
-                    setGestureAttachAttempts((a) => a + 1)
+                    setGestureAttachAttempts((a) => a + 1),
                 );
             } else if (isDebugRef.current) {
                 console.debug(
-                    '[TT] gesture attach giving up (container still null)'
+                    '[TT] gesture attach giving up (container still null)',
                 );
             }
             return;
@@ -728,7 +742,7 @@ export default function Timetable({
 
         const performDayNavigation = (
             direction: 'prev' | 'next',
-            userVelocityPxPerSec?: number
+            userVelocityPxPerSec?: number,
         ) => {
             if (isDayAnimatingRef.current || isAnimatingRef.current) {
                 // Don't interrupt ongoing animations
@@ -785,7 +799,7 @@ export default function Timetable({
             const MAX_DURATION = 420;
             const speed = Math.min(
                 6000,
-                Math.max(900, userVelocityPxPerSec || DEFAULT_SPEED)
+                Math.max(900, userVelocityPxPerSec || DEFAULT_SPEED),
             );
             let duration = (stride / speed) * 1000;
             if (!isFinite(duration)) duration = 300;
@@ -857,7 +871,7 @@ export default function Timetable({
 
         const performNavigation = (
             direction: 'prev' | 'next',
-            userVelocityPxPerSec?: number
+            userVelocityPxPerSec?: number,
         ) => {
             if (isAnimatingRef.current) {
                 // Ignore new navigation until current finishes; snap back for safety
@@ -869,7 +883,7 @@ export default function Timetable({
                         {
                             direction,
                             translateX: translateXRef.current,
-                        }
+                        },
                     );
                 }
                 return;
@@ -931,7 +945,7 @@ export default function Timetable({
             const MAX_DURATION = 520; // ms (fallback upper bound)
             const speed = Math.min(
                 6000,
-                Math.max(900, userVelocityPxPerSec || DEFAULT_SPEED)
+                Math.max(900, userVelocityPxPerSec || DEFAULT_SPEED),
             );
             let DURATION = (stride / speed) * 1000; // ms
             if (!isFinite(DURATION)) DURATION = 380;
@@ -973,7 +987,7 @@ export default function Timetable({
                             // Defer reset to useLayoutEffect on weekStart change
                             if (isDebugRef.current) {
                                 console.debug(
-                                    '[TT] navigation callback fired, awaiting prop update'
+                                    '[TT] navigation callback fired, awaiting prop update',
                                 );
                             }
                             // Safety timeout in case prop update fails or is too slow
@@ -1004,7 +1018,7 @@ export default function Timetable({
                                         direction,
                                         lastNavigationTime:
                                             lastNavigationTimeRef.current,
-                                    }
+                                    },
                                 );
                             }
                         }
@@ -1047,7 +1061,7 @@ export default function Timetable({
                 touchStartY.current,
                 currentX,
                 currentY,
-                touchStartTime.current
+                touchStartTime.current,
             );
 
             if (navigation.shouldNavigate && navigation.direction) {
@@ -1159,7 +1173,7 @@ export default function Timetable({
             if (hasNavigatedThisWheelChain) {
                 if (isDebugRef.current)
                     console.debug(
-                        '[TT] wheel ignored: already navigated this chain'
+                        '[TT] wheel ignored: already navigated this chain',
                     );
                 return;
             }
@@ -1199,7 +1213,7 @@ export default function Timetable({
                 if (isDebugRef.current)
                     console.debug(
                         '[TT] wheel ignored: insufficient horizontal intent',
-                        { absX, absY }
+                        { absX, absY },
                     );
                 return;
             }
@@ -1322,7 +1336,7 @@ export default function Timetable({
                 }
                 if (isDebugRef.current)
                     console.debug(
-                        '[TT] watchdog: corrected non-zero translateX while not animating'
+                        '[TT] watchdog: corrected non-zero translateX while not animating',
                     );
             }
 
@@ -1341,7 +1355,7 @@ export default function Timetable({
                 }
                 if (isDebugRef.current)
                     console.debug(
-                        '[TT] watchdog: corrected non-zero dayTranslateX while not animating'
+                        '[TT] watchdog: corrected non-zero dayTranslateX while not animating',
                     );
             }
 
@@ -1353,7 +1367,7 @@ export default function Timetable({
                 setForceGestureReattach((prev) => prev + 1);
                 if (isDebugRef.current)
                     console.debug(
-                        '[TT] watchdog: periodic gesture reattachment'
+                        '[TT] watchdog: periodic gesture reattachment',
                     );
             }
         }, 1000);
@@ -1409,7 +1423,7 @@ export default function Timetable({
     const todayISO = fmtLocal(new Date());
     const isCurrentWeek = useMemo(
         () => days.some((d) => fmtLocal(d) === todayISO),
-        [days, todayISO]
+        [days, todayISO],
     );
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const isWithinDay = nowMin >= START_MIN && nowMin <= END_MIN;
@@ -1433,7 +1447,7 @@ export default function Timetable({
                 if (legacy) {
                     localStorage.setItem(
                         'periodix:hiddenSubjects:self',
-                        legacy
+                        legacy,
                     );
                     hiddenSubjects = new Set(JSON.parse(legacy));
                 }
@@ -1455,13 +1469,13 @@ export default function Timetable({
                     ...l,
                     // Only show homework on the day it's due
                     homework: (l.homework || []).filter(
-                        (hw) => hw.date === l.date
+                        (hw) => hw.date === l.date,
                     ),
                 });
         }
         for (const k of Object.keys(byDay)) {
             byDay[k].sort(
-                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime
+                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime,
             );
             // Apply lesson merging after sorting
             byDay[k] = mergeLessons(byDay[k]);
@@ -1476,7 +1490,7 @@ export default function Timetable({
         return () =>
             window.removeEventListener(
                 'periodix:hiddenSubjects:changed',
-                handler
+                handler,
             );
     }, []);
 
@@ -1506,13 +1520,13 @@ export default function Timetable({
                 byDay[dStr].push({
                     ...l,
                     homework: (l.homework || []).filter(
-                        (hw) => hw.date === l.date
+                        (hw) => hw.date === l.date,
                     ),
                 });
         }
         for (const k of Object.keys(byDay)) {
             byDay[k].sort(
-                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime
+                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime,
             );
             // Apply lesson merging after sorting
             byDay[k] = mergeLessons(byDay[k]);
@@ -1546,13 +1560,13 @@ export default function Timetable({
                 byDay[dStr].push({
                     ...l,
                     homework: (l.homework || []).filter(
-                        (hw) => hw.date === l.date
+                        (hw) => hw.date === l.date,
                     ),
                 });
         }
         for (const k of Object.keys(byDay)) {
             byDay[k].sort(
-                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime
+                (a, b) => a.startTime - b.startTime || a.endTime - b.endTime,
             );
             // Apply lesson merging after sorting
             byDay[k] = mergeLessons(byDay[k]);
@@ -1562,14 +1576,14 @@ export default function Timetable({
 
     const hasLessons = useMemo(
         () => Object.values(lessonsByDay).some((arr) => arr.length > 0),
-        [lessonsByDay]
+        [lessonsByDay],
     );
 
     // Calculate the maximum number of overlapping lessons across all days in the week
     // This ensures consistent column width/positioning across all days
     const weekMaxColCount = useMemo(
         () => calculateWeekMaxColCount(lessonsByDay, START_MIN, END_MIN),
-        [lessonsByDay, START_MIN, END_MIN]
+        [lessonsByDay, START_MIN, END_MIN],
     );
 
     // Helper to check if a week is a full holiday
@@ -1605,7 +1619,7 @@ export default function Timetable({
 
             const firstHolidayName = dayHolidays[0]?.name;
             const isSameHoliday = dayHolidays.every(
-                (h) => h?.name === firstHolidayName
+                (h) => h?.name === firstHolidayName,
             );
 
             return {
@@ -1614,20 +1628,20 @@ export default function Timetable({
                 holiday: dayHolidays[0],
             };
         },
-        [holidays]
+        [holidays],
     );
 
     const weekHolidayInfo = useMemo(
         () => getWeekHolidayInfo(days),
-        [days, getWeekHolidayInfo]
+        [days, getWeekHolidayInfo],
     );
     const prevWeekHolidayInfo = useMemo(
         () => getWeekHolidayInfo(prevWeekDays),
-        [prevWeekDays, getWeekHolidayInfo]
+        [prevWeekDays, getWeekHolidayInfo],
     );
     const nextWeekHolidayInfo = useMemo(
         () => getWeekHolidayInfo(nextWeekDays),
-        [nextWeekDays, getWeekHolidayInfo]
+        [nextWeekDays, getWeekHolidayInfo],
     );
 
     if (!data) return <TimetableSkeleton />;
@@ -1647,7 +1661,7 @@ export default function Timetable({
                                 onClick={() => {
                                     if (focusedDay) {
                                         triggerDayNavigationRef.current?.(
-                                            'prev'
+                                            'prev',
                                         );
                                     } else {
                                         triggerNavigationRef.current?.('prev');
@@ -1678,7 +1692,7 @@ export default function Timetable({
                                 onClick={() => {
                                     if (focusedDay) {
                                         triggerDayNavigationRef.current?.(
-                                            'next'
+                                            'next',
                                         );
                                     } else {
                                         triggerNavigationRef.current?.('next');
@@ -1775,7 +1789,7 @@ export default function Timetable({
                                 aria-pressed={isFocused}
                                 onClick={() =>
                                     setFocusedDay((prev) =>
-                                        prev === iso ? null : iso
+                                        prev === iso ? null : iso,
                                     )
                                 }
                                 className="h-10 flex flex-col items-center justify-center py-1 transition-colors rounded-md outline-none hover:bg-slate-200/60 dark:hover:bg-slate-700/40 focus-visible:ring-2 focus-visible:ring-slate-400/60 dark:focus-visible:ring-slate-500/60"
@@ -1844,7 +1858,7 @@ export default function Timetable({
                                 >
                                     {(() => {
                                         const currentDayDate = new Date(
-                                            focusedDay
+                                            focusedDay,
                                         );
                                         const prevDayDate =
                                             getPreviousWorkday(currentDayDate);
@@ -1891,7 +1905,7 @@ export default function Timetable({
                                                                     }}
                                                                 >
                                                                     {fmtHM(
-                                                                        nowMin
+                                                                        nowMin,
                                                                     )}
                                                                 </span>
                                                             </div>
@@ -1952,7 +1966,7 @@ export default function Timetable({
                                         const dayObj =
                                             days.find(
                                                 (d) =>
-                                                    fmtLocal(d) === focusedDay
+                                                    fmtLocal(d) === focusedDay,
                                             ) || new Date(focusedDay);
                                         const key = fmtLocal(dayObj);
                                         const items = lessonsByDay[key] || [];
@@ -1977,7 +1991,7 @@ export default function Timetable({
                                                                     }}
                                                                 >
                                                                     {fmtHM(
-                                                                        nowMin
+                                                                        nowMin,
                                                                     )}
                                                                 </span>
                                                             </div>
@@ -2048,7 +2062,7 @@ export default function Timetable({
                                 >
                                     {(() => {
                                         const currentDayDate = new Date(
-                                            focusedDay
+                                            focusedDay,
                                         );
                                         const nextDayDate =
                                             getNextWorkday(currentDayDate);
@@ -2095,7 +2109,7 @@ export default function Timetable({
                                                                     }}
                                                                 >
                                                                     {fmtHM(
-                                                                        nowMin
+                                                                        nowMin,
                                                                     )}
                                                                 </span>
                                                             </div>
@@ -2193,7 +2207,7 @@ export default function Timetable({
                                                         (days.findIndex(
                                                             (d) =>
                                                                 fmtLocal(d) ===
-                                                                todayISO
+                                                                todayISO,
                                                         ) /
                                                             5) *
                                                         100
@@ -2210,7 +2224,7 @@ export default function Timetable({
                                                         (days.findIndex(
                                                             (d) =>
                                                                 fmtLocal(d) ===
-                                                                todayISO
+                                                                todayISO,
                                                         ) /
                                                             5) *
                                                         100
@@ -2227,7 +2241,7 @@ export default function Timetable({
                                                         (days.findIndex(
                                                             (d) =>
                                                                 fmtLocal(d) ===
-                                                                todayISO
+                                                                todayISO,
                                                         ) /
                                                             5) *
                                                         100
@@ -2331,7 +2345,7 @@ export default function Timetable({
                                                 className="absolute inset-0 z-40 flex items-center justify-center p-4 cursor-pointer"
                                                 onClick={() =>
                                                     handleHolidayClick(
-                                                        prevWeekHolidayInfo.holiday!
+                                                        prevWeekHolidayInfo.holiday!,
                                                     )
                                                 }
                                             >
@@ -2437,7 +2451,7 @@ export default function Timetable({
                                                 className="absolute inset-0 z-40 flex items-center justify-center p-4 cursor-pointer"
                                                 onClick={() =>
                                                     handleHolidayClick(
-                                                        weekHolidayInfo.holiday!
+                                                        weekHolidayInfo.holiday!,
                                                     )
                                                 }
                                             >
@@ -2531,7 +2545,7 @@ export default function Timetable({
                                                 className="absolute inset-0 z-40 flex items-center justify-center p-4 cursor-pointer"
                                                 onClick={() =>
                                                     handleHolidayClick(
-                                                        nextWeekHolidayInfo.holiday!
+                                                        nextWeekHolidayInfo.holiday!,
                                                     )
                                                 }
                                             >
@@ -2584,7 +2598,7 @@ export default function Timetable({
                             window as Window &
                                 typeof globalThis & {
                                     onboardingLessonModalStateChange?: (
-                                        isOpen: boolean
+                                        isOpen: boolean,
                                     ) => void;
                                 }
                         ).onboardingLessonModalStateChange === 'function'
@@ -2593,7 +2607,7 @@ export default function Timetable({
                             window as Window &
                                 typeof globalThis & {
                                     onboardingLessonModalStateChange: (
-                                        isOpen: boolean
+                                        isOpen: boolean,
                                     ) => void;
                                 }
                         ).onboardingLessonModalStateChange(false);

@@ -3,6 +3,7 @@ import {
     useLayoutEffect,
     useRef,
     useCallback,
+    useMemo,
     type FC,
     type ReactNode,
     memo,
@@ -51,19 +52,6 @@ export interface AdaptiveLessonContentProps {
     onDecision?: (decision: LayoutDecision) => void;
 }
 
-/**
- * AdaptiveLessonContent - Automatically selects the best layout based on available space
- *
- * Instead of using hardcoded thresholds, this component:
- * 1. Measures each provided layout level's natural size
- * 2. Picks the most detailed layout that fits with acceptable scaling
- * 3. Applies scaling similar to FitText for smooth rendering
- *
- * Benefits over threshold-based approach:
- * - Adapts to actual content (long teacher names, room names, etc.)
- * - Works across different font sizes and zoom levels
- * - No need to tune magic numbers per device/context
- */
 const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
     ({
         availableHeight,
@@ -78,23 +66,11 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
         onDecision,
     }) => {
         const measureContainerRef = useRef<HTMLDivElement>(null);
-        const [selectedLevel, setSelectedLevel] = useState<LayoutLevel | null>(
-            null,
-        );
-        const [scale, setScale] = useState(1);
 
         // Get ordered list of layouts to try (most detailed first)
         const getLayoutOrder = useCallback((): LayoutLevel[] => {
-            // Base order from most to least detailed
-            // Level 6 (inlineAll) is prioritized over Level 3 (subjectRoom) because it
-            // contains more information (teacher) and is more vertically efficient.
             let allLevels: LayoutLevel[] = [0, 1, 2, 6, 3, 4, 5];
 
-            // For singular lessons with limited height (e.g. 45min blocks),
-            // prioritize layouts based on vertical capacity:
-            // 1. If very tight (<58px): One-line (Level 6) first
-            // 2. If medium (58px-74px): Two-line (Level 2) preferred over 3-line
-            // 3. If plenty (>74px): Standard detail-first order
             if (!isSideBySide) {
                 if (availableHeight < 38) {
                     allLevels = [6, 0, 1, 2, 3, 4, 5];
@@ -103,15 +79,12 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                 }
             }
 
-            // Filter to only levels that have content provided
             const availableLevels = allLevels.filter((level) => {
                 const key = levelToKey(level);
                 return layouts[key] !== undefined;
             });
 
             if (isSideBySide && !isCancelledOrIrregular) {
-                // For normal side-by-side: prefer subjectRoom (3) and then inlineAll (6) before compact (2)
-                // Reorder to: 0, 1, 3, 6, 2, 4, 5
                 return availableLevels.sort((a, b) => {
                     const priority: Record<LayoutLevel, number> = {
                         0: 0,
@@ -129,6 +102,16 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
             return availableLevels;
         }, [layouts, isSideBySide, isCancelledOrIrregular, availableHeight]);
 
+        const layoutOrder = useMemo(() => getLayoutOrder(), [getLayoutOrder]);
+
+        // Initial guess based on available space
+        const [selectedLevel, setSelectedLevel] = useState<LayoutLevel>(() => {
+            // If very little horizontal space, guess inlineAll or subjectOnly
+            if (availableWidth < 120) return layoutOrder.find(l => l >= 3) ?? (layoutOrder[0] ?? 0);
+            return layoutOrder[0] ?? 0;
+        });
+        const [scale, setScale] = useState(1);
+
         const getLayoutContent = useCallback(
             (level: LayoutLevel): ReactNode => {
                 const key = levelToKey(level);
@@ -145,21 +128,15 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                 return;
             }
 
-            const layoutOrder = getLayoutOrder();
             if (layoutOrder.length === 0) return;
 
-            // Find the best fitting layout
             const attempts: Array<LayoutAttempt> = [];
             let bestLevel: LayoutLevel = layoutOrder[layoutOrder.length - 1];
             let bestScale = minScale;
 
-            // For side-by-side lessons, we prefer single-line layouts WITHOUT teacher (levels 4, 5)
-            // Only fall back to multi-line or teacher-including layouts if no simple single-line fits
             const isSingleLineNoTeacher = (level: LayoutLevel) =>
                 level === 4 || level === 5;
 
-            // First pass: try single-line layouts without teacher for side-by-side
-            // Second pass (if needed): try all layouts
             const passes =
                 isSideBySide && !isCancelledOrIrregular
                     ? [layoutOrder.filter(isSingleLineNoTeacher), layoutOrder]
@@ -174,11 +151,9 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                     ) as HTMLElement;
                     if (!content) continue;
 
-                    // Get natural dimensions
                     const contentHeight = content.scrollHeight;
                     const contentWidth = content.scrollWidth;
 
-                    // Only record attempts once (during first iteration)
                     const alreadyRecorded = attempts.some(
                         (a) => a.level === level,
                     );
@@ -194,26 +169,19 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                             continue;
                         }
 
-                        // Calculate required scale to fit
                         const scaleH = effectiveHeight / contentHeight;
                         const scaleW = availableWidth / contentWidth;
 
-                        // For single-line layouts (4, 5, 6), prioritize horizontal fit
-                        // These layouts have minimal height and should be selected based on width
                         const isSingleLineLayout =
                             level === 4 || level === 5 || level === 6;
 
                         let requiredScale: number;
                         if (isSingleLineLayout) {
-                            // For single-line: only care about width fitting
-                            // Height is almost always sufficient for single lines
-                            // Use height only as a sanity check (must be at least 0.5 scale)
                             requiredScale =
                                 scaleH >= 0.5
                                     ? scaleW
                                     : Math.min(scaleH, scaleW);
                         } else {
-                            // For multi-line layouts: use the more restrictive of the two
                             requiredScale = Math.min(scaleH, scaleW);
                         }
 
@@ -229,7 +197,6 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                     const attempt = attempts.find((a) => a.level === level);
                     if (!attempt || attempt.requiredScale < minScale) continue;
 
-                    // Accept this layout if it fits with acceptable scaling
                     bestLevel = level;
                     bestScale = Math.min(
                         maxScale,
@@ -263,57 +230,11 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
             layouts,
             minScale,
             maxScale,
-            getLayoutOrder,
+            layoutOrder,
             isSideBySide,
             isCancelledOrIrregular,
             onDecision,
         ]);
-
-        const layoutOrder = getLayoutOrder();
-
-        // Don't render until we've determined the layout
-        if (selectedLevel === null && layoutOrder.length > 0) {
-            // Initial render - show minimal layout while measuring
-            const fallbackLevel = layoutOrder[layoutOrder.length - 1];
-            return (
-                <div
-                    className={className}
-                    style={{
-                        height: '100%',
-                        overflow: 'hidden',
-                        position: 'relative',
-                    }}
-                >
-                    {/* Measurement container */}
-                    <div
-                        ref={measureContainerRef}
-                        aria-hidden="true"
-                        style={{
-                            position: 'absolute',
-                            visibility: 'hidden',
-                            pointerEvents: 'none',
-                            width: availableWidth,
-                            left: -9999,
-                            top: 0,
-                        }}
-                    >
-                        {layoutOrder.map((level) => (
-                            <div
-                                key={level}
-                                data-layout-level={level}
-                                style={{ display: 'block' }}
-                            >
-                                {getLayoutContent(level)}
-                            </div>
-                        ))}
-                    </div>
-                    {/* Show fallback while measuring */}
-                    <div style={{ opacity: 0 }}>
-                        {getLayoutContent(fallbackLevel)}
-                    </div>
-                </div>
-            );
-        }
 
         return (
             <div
@@ -324,7 +245,7 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                     position: 'relative',
                 }}
             >
-                {/* Hidden measurement container - keeps all layouts measurable for re-evaluation */}
+                {/* Hidden measurement container */}
                 <div
                     ref={measureContainerRef}
                     aria-hidden="true"
@@ -348,14 +269,14 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
                     ))}
                 </div>
 
-                {/* Visible content - selected layout with scaling */}
+                {/* Visible content - renders immediately with best guess */}
                 <div
                     style={{
                         transform: scale !== 1 ? `scale(${scale})` : undefined,
                         transformOrigin: 'top left',
                     }}
                 >
-                    {selectedLevel !== null && getLayoutContent(selectedLevel)}
+                    {getLayoutContent(selectedLevel)}
                 </div>
             </div>
         );
@@ -364,7 +285,6 @@ const AdaptiveLessonContent: FC<AdaptiveLessonContentProps> = memo(
 
 AdaptiveLessonContent.displayName = 'AdaptiveLessonContent';
 
-/** Helper to convert layout level to object key */
 function levelToKey(
     level: LayoutLevel,
 ): keyof AdaptiveLessonContentProps['layouts'] {

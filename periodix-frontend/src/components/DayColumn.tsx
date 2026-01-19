@@ -540,7 +540,7 @@ const DayColumn: FC<DayColumnProps> = ({
             <div className="absolute inset-0 rounded-xl ring-1 ring-slate-900/10 dark:ring-white/10 shadow-sm overflow-hidden transition-colors bg-gradient-to-b from-slate-50/85 via-slate-100/80 to-sky-50/70 dark:bg-slate-800/40 dark:bg-none" />
             {/* Today highlight overlay */}
             {isToday && (
-                <div className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden">
+                <div className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden animate-highlight-fade-in">
                     <div className="absolute inset-0 rounded-xl shadow-[inset_0_0_0_2px_rgba(251,191,36,0.35)]" />
                     <div className="absolute inset-0 rounded-xl bg-gradient-to-b from-amber-200/20 via-amber-200/10 to-transparent dark:from-amber-300/15 dark:via-amber-300/10" />
                 </div>
@@ -2055,13 +2055,13 @@ const ResponsiveTimeFrame: FC<{
     minHeightWhenWrapped?: number;
 }> = ({ startMin, endMin, cancelled = false }) => {
     const ref = useRef<HTMLDivElement | null>(null);
-    // Initialize to true (hidden) to prevent flash on mount - will show if there's space after measurement
-    const [wrapVertical, setWrapVertical] = useState(true);
+    // Initialize to false (visible) to prevent reload flicker - will hide if measurement confirms no space
+    const [wrapVertical, setWrapVertical] = useState(false);
     // Track the stable wrapped state to prevent flickering
-    const stableWrappedRef = useRef(true);
+    const stableWrappedRef = useRef(false);
     const debounceTimerRef = useRef<number | null>(null);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const timeEl = ref.current;
         if (!timeEl) return;
         const lessonEl = timeEl.closest(
@@ -2161,10 +2161,8 @@ const ResponsiveTimeFrame: FC<{
             }
         };
 
-        // Initial computation - apply immediately without debounce
-        frame = requestAnimationFrame(() => {
-            frame = requestAnimationFrame(() => compute(true));
-        });
+        // Initial computation - apply immediately
+        compute(true);
 
         const handleResize = () => compute(false);
 

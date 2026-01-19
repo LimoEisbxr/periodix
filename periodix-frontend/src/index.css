@@ -700,3 +700,47 @@ html.dark .change-highlight-mobile {
     font-size: 14px;
     color: inherit !important;
 }
+
+/* Custom Animations */
+@keyframes highlight-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-highlight-fade-in {
+    animation: highlight-fade-in 0.8s ease-out forwards;
+}
+
+/* Timetable Current Week Highlight */
+.timetable-current-week::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #10b981, #3b82f6, #6366f1);
+    z-index: 40;
+    opacity: 0.8;
+}
+
+/* Subtle background accent for current week */
+.timetable-current-week {
+    background: radial-gradient(
+        circle at 50% -10%,
+        rgba(16, 185, 129, 0.03),
+        transparent 40%
+    );
+}
+
+.dark .timetable-current-week {
+    background: radial-gradient(
+        circle at 50% -10%,
+        rgba(16, 185, 129, 0.05),
+        transparent 50%
+    );
+}

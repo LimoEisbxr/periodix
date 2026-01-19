@@ -384,9 +384,9 @@ export default function Dashboard({
             setLoadError(null);
             try {
                 // Track timetable view
-                trackActivity(token, 'timetable_view', { userId: user.id }).catch(
-                    console.error,
-                );
+                trackActivity(token, 'timetable_view', {
+                    userId: user.id,
+                }).catch(console.error);
 
                 const { data: res, fromCache } = await getTimetableData(
                     user.id,
@@ -394,76 +394,78 @@ export default function Dashboard({
                     weekStartDate,
                     token,
                     true,
-                    forceRefresh
+                    forceRefresh,
                 );
                 setMine(res);
 
-            // Update global fallback notice if it's a fresh fetch
-            if (!fromCache) {
-                if (res.stale) {
-                    setGlobalFallbackNotice({
-                        reason:
-                            (res.fallbackReason as TimetableFallbackReason) ||
-                            'UNKNOWN',
-                        lastUpdated: res.lastUpdated,
-                        lastChecked: new Date().toISOString(),
-                        errorCode: res.errorCode,
-                        errorMessage: res.errorMessage,
-                    });
-                } else {
-                    setGlobalFallbackNotice(null);
-                    fallbackDismissedRef.current.clear();
-                }
-            } else if (res.stale) {
-                // If from cache but we know it's stale (e.g. background fetch triggered it),
-                // we can still update the checked time if we have a global notice
-                setGlobalFallbackNotice((prev) =>
-                    prev
-                        ? { ...prev, lastChecked: new Date().toISOString() }
-                        : null,
-                );
-            }
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Failed to load';
-            // Auto-retry if rate-limited; avoid replacing timetable with an empty one
-            try {
-                const parsed = JSON.parse(msg);
-                if (parsed?.status === 429) {
-                    const retryAfterSec = Math.max(
-                        1,
-                        Number(parsed?.retryAfter || 0) || 1,
+                // Update global fallback notice if it's a fresh fetch
+                if (!fromCache) {
+                    if (res.stale) {
+                        setGlobalFallbackNotice({
+                            reason:
+                                (res.fallbackReason as TimetableFallbackReason) ||
+                                'UNKNOWN',
+                            lastUpdated: res.lastUpdated,
+                            lastChecked: new Date().toISOString(),
+                            errorCode: res.errorCode,
+                            errorMessage: res.errorMessage,
+                        });
+                    } else {
+                        setGlobalFallbackNotice(null);
+                        fallbackDismissedRef.current.clear();
+                    }
+                } else if (res.stale) {
+                    // If from cache but we know it's stale (e.g. background fetch triggered it),
+                    // we can still update the checked time if we have a global notice
+                    setGlobalFallbackNotice((prev) =>
+                        prev
+                            ? { ...prev, lastChecked: new Date().toISOString() }
+                            : null,
                     );
-                    setRetrySeconds(retryAfterSec);
-                    setLoadError(null); // handled by retry banner below
-                    const t = setTimeout(() => {
-                        setRetrySeconds(null);
-                        loadMine(forceRefresh);
-                    }, retryAfterSec * 1000);
-                    // Best-effort: clear timer if component unmounts or deps change
-                    return () => clearTimeout(t);
                 }
-            } catch {
-                // ignore JSON parse errors and non-structured messages
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Failed to load';
+                // Auto-retry if rate-limited; avoid replacing timetable with an empty one
+                try {
+                    const parsed = JSON.parse(msg);
+                    if (parsed?.status === 429) {
+                        const retryAfterSec = Math.max(
+                            1,
+                            Number(parsed?.retryAfter || 0) || 1,
+                        );
+                        setRetrySeconds(retryAfterSec);
+                        setLoadError(null); // handled by retry banner below
+                        const t = setTimeout(() => {
+                            setRetrySeconds(null);
+                            loadMine(forceRefresh);
+                        }, retryAfterSec * 1000);
+                        // Best-effort: clear timer if component unmounts or deps change
+                        return () => clearTimeout(t);
+                    }
+                } catch {
+                    // ignore JSON parse errors and non-structured messages
+                }
+                setLoadError(msg);
+                // Non-429: fall back to an empty timetable to keep UI consistent
+                setMine({
+                    userId: user.id,
+                    rangeStart: weekStartStr,
+                    rangeEnd: weekEndStr,
+                    payload: [],
+                });
+            } finally {
+                /* no loading flag */
             }
-            setLoadError(msg);
-            // Non-429: fall back to an empty timetable to keep UI consistent
-            setMine({
-                userId: user.id,
-                rangeStart: weekStartStr,
-                rangeEnd: weekEndStr,
-                payload: [],
-            });
-        } finally {
-            /* no loading flag */
-        }
-    }, [
-        getTimetableData,
-        user.id,
-        weekStartDate,
-        token,
-        weekStartStr,
-        weekEndStr,
-    ]);
+        },
+        [
+            getTimetableData,
+            user.id,
+            weekStartDate,
+            token,
+            weekStartStr,
+            weekEndStr,
+        ],
+    );
 
     const loadUser = useCallback(
         async (userId: string, forceRefresh: boolean = false) => {
@@ -481,7 +483,7 @@ export default function Dashboard({
                     weekStartDate,
                     token,
                     false,
-                    forceRefresh
+                    forceRefresh,
                 );
                 setMine(res);
 
