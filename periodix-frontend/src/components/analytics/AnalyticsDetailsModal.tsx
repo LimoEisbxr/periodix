@@ -92,7 +92,7 @@ export const AnalyticsDetailsModal: FC<Props> = ({
         return items.filter(
             (i) =>
                 i.username.toLowerCase().includes(low) ||
-                (i.displayName && i.displayName.toLowerCase().includes(low))
+                (i.displayName && i.displayName.toLowerCase().includes(low)),
         );
     }, [items, search]);
 
@@ -111,10 +111,14 @@ export const AnalyticsDetailsModal: FC<Props> = ({
             {/* Modal */}
             <div className="relative z-10 w-full sm:w-[min(500px,95vw)] max-h-[85vh] sm:max-h-[80vh] bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5">
                 {/* Header */}
-                <div className={`p-6 bg-gradient-to-br ${info.color} text-white flex-shrink-0`}>
+                <div
+                    className={`p-6 bg-gradient-to-br ${info.color} text-white flex-shrink-0`}
+                >
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-                            <span className="text-2xl drop-shadow-lg">{info.icon}</span>
+                            <span className="text-2xl drop-shadow-lg">
+                                {info.icon}
+                            </span>
                             <h3 className="font-black text-xl tracking-tight uppercase">
                                 {info.title}
                             </h3>
@@ -123,8 +127,18 @@ export const AnalyticsDetailsModal: FC<Props> = ({
                             className="p-2 hover:bg-white/20 rounded-xl transition-colors text-white/80 hover:text-white"
                             onClick={onClose}
                         >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                            <svg
+                                className="w-6 h-6"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2.5}
+                                    d="M6 18L18 6M6 6l12 12"
+                                />
                             </svg>
                         </button>
                     </div>
@@ -144,8 +158,18 @@ export const AnalyticsDetailsModal: FC<Props> = ({
                                 onChange={(e) => setSearch(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/50 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
                             />
-                            <svg className="w-4 h-4 absolute left-3.5 top-3 text-slate-400 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            <svg
+                                className="w-4 h-4 absolute left-3.5 top-3 text-slate-400 group-focus-within:text-indigo-500 transition-colors"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2.5}
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                />
                             </svg>
                         </div>
                     </div>
@@ -171,7 +195,9 @@ export const AnalyticsDetailsModal: FC<Props> = ({
                         <div className="p-16 text-center">
                             <div className="text-6xl mb-6 opacity-10">🌫️</div>
                             <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                                {search ? 'No matches found' : 'Database is empty'}
+                                {search
+                                    ? 'No matches found'
+                                    : 'Database is empty'}
                             </p>
                         </div>
                     ) : (
@@ -184,9 +210,16 @@ export const AnalyticsDetailsModal: FC<Props> = ({
                                 >
                                     {/* Rank Decoration */}
                                     <div className="w-8 flex justify-center flex-shrink-0">
-                                        {metric === 'session_duration_top' && !search ? (
+                                        {metric === 'session_duration_top' &&
+                                        !search ? (
                                             <span className="text-sm font-black text-slate-400">
-                                                {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                                                {index === 0
+                                                    ? '🥇'
+                                                    : index === 1
+                                                      ? '🥈'
+                                                      : index === 2
+                                                        ? '🥉'
+                                                        : index + 1}
                                             </span>
                                         ) : (
                                             <div className="w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 group-hover:bg-indigo-400 transition-colors" />
@@ -195,7 +228,9 @@ export const AnalyticsDetailsModal: FC<Props> = ({
 
                                     {/* Avatar */}
                                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-slate-800 dark:to-slate-700 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-sm flex-shrink-0 shadow-sm group-hover:scale-110 transition-transform">
-                                        {(item.displayName || item.username).charAt(0).toUpperCase()}
+                                        {(item.displayName || item.username)
+                                            .charAt(0)
+                                            .toUpperCase()}
                                     </div>
 
                                     {/* Info */}
@@ -213,10 +248,15 @@ export const AnalyticsDetailsModal: FC<Props> = ({
                                         {metric === 'session_duration_top' ? (
                                             <>
                                                 <p className="text-sm font-black text-slate-900 dark:text-slate-100 tabular-nums">
-                                                    {(item.avgSessionMinutes ?? 0).toFixed(1)}m
+                                                    {(
+                                                        item.avgSessionMinutes ??
+                                                        0
+                                                    ).toFixed(1)}
+                                                    m
                                                 </p>
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                                    {item.sessionCount ?? 1} sess
+                                                    {item.sessionCount ?? 1}{' '}
+                                                    sess
                                                 </p>
                                             </>
                                         ) : item.count !== undefined ? (
@@ -227,7 +267,12 @@ export const AnalyticsDetailsModal: FC<Props> = ({
                                             </div>
                                         ) : item.lastAt ? (
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest tabular-nums">
-                                                {new Date(item.lastAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                {new Date(
+                                                    item.lastAt,
+                                                ).toLocaleDateString([], {
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                })}
                                             </p>
                                         ) : (
                                             <div className="w-4 h-4 rounded bg-slate-50 dark:bg-slate-800" />

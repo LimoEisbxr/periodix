@@ -6,7 +6,7 @@ export default {
     safelist: [
         'ring-4',
         'ring-rose-500',
-        'ring-rose-400', 
+        'ring-rose-400',
         'ring-emerald-500',
         'ring-emerald-400',
         'border-4',
@@ -15,7 +15,7 @@ export default {
         'border-rose-500',
         'border-rose-400',
         'border-emerald-500',
-        'border-emerald-400'
+        'border-emerald-400',
     ],
     theme: {
         extend: {
