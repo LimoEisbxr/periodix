@@ -310,7 +310,7 @@ export default function NotificationPanel({
                                             </h4>
                                             <span className="text-xs text-slate-400 dark:text-slate-500 ml-2 flex-shrink-0">
                                                 {formatNotificationTime(
-                                                    notification.createdAt
+                                                    notification.createdAt,
                                                 )}
                                             </span>
                                         </div>
@@ -330,7 +330,7 @@ export default function NotificationPanel({
                                                 <button
                                                     onClick={() =>
                                                         handleMarkAsRead(
-                                                            notification.id
+                                                            notification.id,
                                                         )
                                                     }
                                                     className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
@@ -341,7 +341,7 @@ export default function NotificationPanel({
                                             <button
                                                 onClick={() =>
                                                     handleDelete(
-                                                        notification.id
+                                                        notification.id,
                                                     )
                                                 }
                                                 className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
@@ -357,6 +357,6 @@ export default function NotificationPanel({
                 </div>
             </div>
         </div>,
-        document.body
+        document.body,
     );
 }

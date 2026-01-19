@@ -478,8 +478,7 @@ export default function Timetable({
             return;
         }
 
-        const isActivelyMoving =
-            isAnimating || Math.abs(translateX) > 25;
+        const isActivelyMoving = isAnimating || Math.abs(translateX) > 25;
 
         if (isActivelyMoving) {
             setIsHighlightVisible(true);

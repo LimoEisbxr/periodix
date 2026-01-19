@@ -122,7 +122,7 @@ if (vapidPublicKey && vapidPrivateKey) {
     console.log('Web Push configured with VAPID keys');
 } else {
     console.warn(
-        'VAPID keys not configured - push notifications will not work'
+        'VAPID keys not configured - push notifications will not work',
     );
 }
 
@@ -164,7 +164,7 @@ export class NotificationService {
      */
     private getNowInUserTimezone(userTimezone: string): Date {
         return new Date(
-            new Date().toLocaleString('en-US', { timeZone: userTimezone })
+            new Date().toLocaleString('en-US', { timeZone: userTimezone }),
         );
     }
 
@@ -194,7 +194,7 @@ export class NotificationService {
             // dedupeKey (when present) already protects against true duplicates for the same event.
             if (!data.dedupeKey) {
                 const thirtyDaysAgo = new Date(
-                    Date.now() - 30 * 24 * 60 * 60 * 1000
+                    Date.now() - 30 * 24 * 60 * 60 * 1000,
                 );
                 try {
                     const existing = await (
@@ -301,7 +301,7 @@ export class NotificationService {
             if (
                 !this.isNotificationTypeEnabled(
                     data.type,
-                    user.notificationSettings
+                    user.notificationSettings,
                 )
             ) {
                 return;
@@ -315,7 +315,7 @@ export class NotificationService {
             // Only send push notifications if VAPID keys are configured
             if (!vapidPublicKey || !vapidPrivateKey) {
                 console.warn(
-                    'VAPID keys not configured - skipping push notification'
+                    'VAPID keys not configured - skipping push notification',
                 );
                 return;
             }
@@ -403,8 +403,8 @@ export class NotificationService {
                     console.log(
                         `Push notification sent to device: ${sub.endpoint.substring(
                             0,
-                            50
-                        )}...`
+                            50,
+                        )}...`,
                     );
                 } catch (error: any) {
                     console.error('Failed to send push to device:', error);
@@ -418,8 +418,8 @@ export class NotificationService {
                         console.log(
                             `Marked subscription as inactive: ${sub.endpoint.substring(
                                 0,
-                                50
-                            )}...`
+                                50,
+                            )}...`,
                         );
                     }
                 }
@@ -439,7 +439,7 @@ export class NotificationService {
             });
 
             console.log(
-                `Push notification sent to ${subscriptions.length} devices for user ${data.userId}`
+                `Push notification sent to ${subscriptions.length} devices for user ${data.userId}`,
             );
         } catch (error) {
             console.error('Failed to send push notification:', error);
@@ -471,7 +471,7 @@ export class NotificationService {
     // Notify user managers about new access requests
     async notifyAccessRequest(
         username: string,
-        message?: string
+        message?: string,
     ): Promise<void> {
         try {
             const userManagers = await (prisma as any).user.findMany({
@@ -514,7 +514,7 @@ export class NotificationService {
                         userId: manager.id,
                         data: { username, message },
                         expiresAt: new Date(
-                            Date.now() + 7 * 24 * 60 * 60 * 1000
+                            Date.now() + 7 * 24 * 60 * 60 * 1000,
                         ), // 7 days
                         dedupeKey,
                     });
@@ -599,7 +599,7 @@ export class NotificationService {
                     // If fetching fails (e.g., missing Untis credentials), fall back to existing cache
                     console.warn(
                         `Admin interval refresh failed for ${user.id}:`,
-                        (fetchErr as any)?.message || fetchErr
+                        (fetchErr as any)?.message || fetchErr,
                     );
                 }
 
@@ -618,7 +618,7 @@ export class NotificationService {
     // Check for changes in a specific user's timetable
     private async checkUserTimetableChanges(
         user: any,
-        options?: { onlyUpcoming?: boolean }
+        options?: { onlyUpcoming?: boolean },
     ): Promise<void> {
         try {
             // This is a simplified version - in a real implementation you would:
@@ -640,7 +640,7 @@ export class NotificationService {
 
             // Get current date info using the user's timezone
             const today = this.getNowInUserTimezone(
-                user.timezone || 'Europe/Berlin'
+                user.timezone || 'Europe/Berlin',
             );
             const todayString =
                 today.getFullYear() * 10000 +
@@ -673,7 +673,7 @@ export class NotificationService {
                 const m = Math.floor((n % 10000) / 100);
                 const d = n % 100;
                 return `${String(y)}-${String(m).padStart(2, '0')}-${String(
-                    d
+                    d,
                 ).padStart(2, '0')}`;
             };
             const formatHm = (hhmm: number | undefined) => {
@@ -682,7 +682,7 @@ export class NotificationService {
                 const mm = (hhmm as number) % 100;
                 return `${String(hh).padStart(2, '0')}:${String(mm).padStart(
                     2,
-                    '0'
+                    '0',
                 )}`;
             };
 
@@ -722,7 +722,7 @@ export class NotificationService {
                                     lesson.date <= endOfWeekString;
                             }
                             return shouldNotify;
-                        }
+                        },
                     );
 
                     // Group consecutive cancelled lessons for merged notifications
@@ -756,7 +756,7 @@ export class NotificationService {
                             const lesson = group[0];
                             const subject = lesson.su?.[0]?.name || 'Lesson';
                             const when = `${formatYmd(lesson.date)} ${formatHm(
-                                lesson.startTime
+                                lesson.startTime,
                             )}`.trim();
                             const dedupeKey = [
                                 'cancelled',
@@ -789,7 +789,7 @@ export class NotificationService {
                                     (l) =>
                                         l?.id ??
                                         l?.lessonId ??
-                                        createCanonicalSignature(l)
+                                        createCanonicalSignature(l),
                                 )
                                 .sort()
                                 .join(',');
@@ -841,7 +841,7 @@ export class NotificationService {
                                     lesson.date <= endOfWeekString;
                             }
                             return shouldNotify;
-                        }
+                        },
                     );
 
                     // Group consecutive irregular lessons for merged notifications
@@ -882,7 +882,7 @@ export class NotificationService {
                                 irregularFlags.push('room');
                             const subject = lesson.su?.[0]?.name || 'Lesson';
                             const when = `${formatYmd(lesson.date)} ${formatHm(
-                                lesson.startTime
+                                lesson.startTime,
                             )}`.trim();
                             const dedupeKey = [
                                 'irregular',
@@ -896,7 +896,7 @@ export class NotificationService {
                                 type: 'irregular_lesson',
                                 title: 'Irregular Lesson',
                                 message: `${subject} on ${when} has irregular changes (${irregularFlags.join(
-                                    ', '
+                                    ', ',
                                 )})`,
                                 userId: user.id,
                                 data: lesson,
@@ -931,7 +931,7 @@ export class NotificationService {
                                     (l) =>
                                         l?.id ??
                                         l?.lessonId ??
-                                        createCanonicalSignature(l)
+                                        createCanonicalSignature(l),
                                 )
                                 .sort()
                                 .join(',');
@@ -949,7 +949,7 @@ export class NotificationService {
                                 type: 'irregular_lesson',
                                 title: 'Irregular Lessons',
                                 message: `${subject} lessons on ${date} from ${startTime} to ${endTime} have irregular changes (${irregularFlags.join(
-                                    ', '
+                                    ', ',
                                 )})`,
                                 userId: user.id,
                                 data: {
@@ -968,7 +968,7 @@ export class NotificationService {
             // Upcoming lesson reminders (Beta): send 5 minutes before start time
             if (options?.onlyUpcoming && user.notificationSettings) {
                 const now = this.getNowInUserTimezone(
-                    user.timezone || 'Europe/Berlin'
+                    user.timezone || 'Europe/Berlin',
                 );
                 const nowMinutes = now.getHours() * 60 + now.getMinutes();
                 const todayYmd =
@@ -997,7 +997,7 @@ export class NotificationService {
 
                 // Group eligible upcoming lessons for merged notifications
                 const upcomingGroups = groupLessonsForNotifications(
-                    eligibleUpcomingLessons
+                    eligibleUpcomingLessons,
                 );
 
                 for (const group of upcomingGroups) {
@@ -1005,7 +1005,7 @@ export class NotificationService {
                     const devicePrefs = (user.notificationSettings
                         ?.devicePreferences || {}) as Record<string, any>;
                     const anyDeviceEnabled = Object.values(devicePrefs).some(
-                        (p: any) => p?.upcomingLessonsEnabled
+                        (p: any) => p?.upcomingLessonsEnabled,
                     );
                     if (!anyDeviceEnabled && !globalUpcomingEnabled) continue;
 
@@ -1040,11 +1040,11 @@ export class NotificationService {
                         // Build shortform info: subject, time, room, teacher
                         const subject = lesson.su?.[0]?.name || 'Lesson';
                         const hh = String(
-                            Math.floor(lesson.startTime / 100)
+                            Math.floor(lesson.startTime / 100),
                         ).padStart(2, '0');
                         const mm = String(lesson.startTime % 100).padStart(
                             2,
-                            '0'
+                            '0',
                         );
                         const room = lesson.ro
                             ?.map((r: any) => r.name)
@@ -1115,7 +1115,7 @@ export class NotificationService {
                                 (l) =>
                                     l?.id ??
                                     l?.lessonId ??
-                                    createCanonicalSignature(l)
+                                    createCanonicalSignature(l),
                             )
                             .sort()
                             .join(',');
@@ -1155,7 +1155,7 @@ export class NotificationService {
                             (lesson) =>
                                 lesson.code === 'irregular' ||
                                 lesson.te?.some((t: any) => t.orgname) ||
-                                lesson.ro?.some((r: any) => r.orgname)
+                                lesson.ro?.some((r: any) => r.orgname),
                         );
 
                         const irregularPartsSet: Set<string> = new Set();
@@ -1167,12 +1167,12 @@ export class NotificationService {
                                         .filter((t: any) => t.orgname)
                                         .map(
                                             (t: any) =>
-                                                `${t.orgname} → ${t.name}`
+                                                `${t.orgname} → ${t.name}`,
                                         )
                                         .join(', ');
                                     if (changes)
                                         irregularPartsSet.add(
-                                            `Teacher: ${changes}`
+                                            `Teacher: ${changes}`,
                                         );
                                 }
                                 if (lesson.ro?.some((r: any) => r.orgname)) {
@@ -1180,12 +1180,12 @@ export class NotificationService {
                                         .filter((r: any) => r.orgname)
                                         .map(
                                             (r: any) =>
-                                                `${r.orgname} → ${r.name}`
+                                                `${r.orgname} → ${r.name}`,
                                         )
                                         .join(', ');
                                     if (changes)
                                         irregularPartsSet.add(
-                                            `Room: ${changes}`
+                                            `Room: ${changes}`,
                                         );
                                 }
                             }
@@ -1227,7 +1227,7 @@ export class NotificationService {
         } catch (error) {
             console.error(
                 `Failed to check timetable changes for user ${user.id}:`,
-                error
+                error,
             );
         }
     }
@@ -1254,7 +1254,7 @@ export class NotificationService {
                 try {
                     // Calculate current time in the user's timezone
                     const now = this.getNowInUserTimezone(
-                        user.timezone || 'Europe/Berlin'
+                        user.timezone || 'Europe/Berlin',
                     );
                     const todayYmd =
                         now.getFullYear() * 10000 +
@@ -1265,7 +1265,7 @@ export class NotificationService {
                     const devicePrefs = (user.notificationSettings
                         ?.devicePreferences || {}) as Record<string, any>;
                     const anyDeviceEnabled = Object.values(devicePrefs).some(
-                        (p: any) => p?.upcomingLessonsEnabled === true
+                        (p: any) => p?.upcomingLessonsEnabled === true,
                     );
                     const globalUpcomingEnabled =
                         user.notificationSettings?.upcomingLessonsEnabled ===
@@ -1280,7 +1280,7 @@ export class NotificationService {
                         ? (latest.payload as any[])
                         : [];
                     let hasToday = lessons.some(
-                        (l: any) => Number(l?.date) === todayYmd
+                        (l: any) => Number(l?.date) === todayYmd,
                     );
                     if (!hasToday) {
                         // Attempt a lightweight refresh for just today to populate cache.
@@ -1300,7 +1300,7 @@ export class NotificationService {
                                     ? (refreshed.payload as any[])
                                     : [];
                                 hasToday = lessons.some(
-                                    (l: any) => Number(l?.date) === todayYmd
+                                    (l: any) => Number(l?.date) === todayYmd,
                                 );
                                 // IMPORTANT: Mutate the in-memory user object so that
                                 // downstream checkUserTimetableChanges() sees the fresh
@@ -1322,7 +1322,7 @@ export class NotificationService {
                         } catch (refreshErr) {
                             console.warn(
                                 `Upcoming fast refresh failed for ${user.id}:`,
-                                (refreshErr as any)?.message || refreshErr
+                                (refreshErr as any)?.message || refreshErr,
                             );
                         }
                     }
@@ -1334,7 +1334,7 @@ export class NotificationService {
                 } catch (perUserErr) {
                     console.error(
                         `checkUpcomingLessons user ${user?.id} failed:`,
-                        perUserErr
+                        perUserErr,
                     );
                 }
             }
@@ -1357,15 +1357,18 @@ export class NotificationService {
         ).adminNotificationSettings.findFirst();
         const intervalMinutes = adminSettings?.timetableFetchInterval || 30;
 
-        this.intervalId = setInterval(async () => {
-            if (this.isCheckingChanges) return;
-            this.isCheckingChanges = true;
-            try {
-                await this.checkTimetableChanges();
-            } finally {
-                this.isCheckingChanges = false;
-            }
-        }, intervalMinutes * 60 * 1000); // Convert minutes to milliseconds
+        this.intervalId = setInterval(
+            async () => {
+                if (this.isCheckingChanges) return;
+                this.isCheckingChanges = true;
+                try {
+                    await this.checkTimetableChanges();
+                } finally {
+                    this.isCheckingChanges = false;
+                }
+            },
+            intervalMinutes * 60 * 1000,
+        ); // Convert minutes to milliseconds
 
         // Separate fast loop for upcoming lesson reminders (runs every 60s)
         if (!this.upcomingIntervalId) {
@@ -1384,24 +1387,27 @@ export class NotificationService {
 
         // Separate loop for absences (runs every 1 hour)
         if (!this.absenceIntervalId) {
-            this.absenceIntervalId = setInterval(async () => {
-                if (this.isCheckingAbsences) return;
-                this.isCheckingAbsences = true;
-                try {
-                    await this.checkAbsenceChanges();
-                } catch (e) {
-                    console.error('Absence check failed:', e);
-                } finally {
-                    this.isCheckingAbsences = false;
-                }
-            }, 60 * 60 * 1000);
+            this.absenceIntervalId = setInterval(
+                async () => {
+                    if (this.isCheckingAbsences) return;
+                    this.isCheckingAbsences = true;
+                    try {
+                        await this.checkAbsenceChanges();
+                    } catch (e) {
+                        console.error('Absence check failed:', e);
+                    } finally {
+                        this.isCheckingAbsences = false;
+                    }
+                },
+                60 * 60 * 1000,
+            );
         }
 
         // Run first absence check after a short delay
         setTimeout(() => this.checkAbsenceChanges(), 15000);
 
         console.log(
-            `Notification service started with ${intervalMinutes} minute interval`
+            `Notification service started with ${intervalMinutes} minute interval`,
         );
     }
 
@@ -1467,16 +1473,16 @@ export class NotificationService {
                     end.setMonth(end.getMonth() + 3);
 
                     const startInt = parseInt(
-                        start.toISOString().slice(0, 10).replace(/-/g, '')
+                        start.toISOString().slice(0, 10).replace(/-/g, ''),
                     );
                     const endInt = parseInt(
-                        end.toISOString().slice(0, 10).replace(/-/g, '')
+                        end.toISOString().slice(0, 10).replace(/-/g, ''),
                     );
 
                     const freshAbsences = await fetchAbsencesFromUntis(
                         user.id,
                         start,
-                        end
+                        end,
                     );
 
                     // Fetch existing from DB - use overlap logic to catch all relevant absences
@@ -1491,7 +1497,7 @@ export class NotificationService {
                     });
 
                     const existingMap = new Map(
-                        existingAbsences.map((a: any) => [a.untisId, a])
+                        existingAbsences.map((a: any) => [a.untisId, a]),
                     );
 
                     for (const fresh of freshAbsences) {
@@ -1500,7 +1506,7 @@ export class NotificationService {
                         if (!existing) {
                             // New absence
                             const dateStr = this.formatAbsenceDate(
-                                fresh.startDate
+                                fresh.startDate,
                             );
                             await this.createNotification({
                                 type: 'absence_new',
@@ -1517,24 +1523,24 @@ export class NotificationService {
                             const changes: string[] = [];
                             if (existing.isExcused !== fresh.isExcused) {
                                 changes.push(
-                                    fresh.isExcused ? 'Excused' : 'Unexcused'
+                                    fresh.isExcused ? 'Excused' : 'Unexcused',
                                 );
                             }
                             if (existing.reason !== fresh.reason) {
                                 changes.push(
-                                    `Reason: ${fresh.reason || 'None'}`
+                                    `Reason: ${fresh.reason || 'None'}`,
                                 );
                             }
 
                             if (changes.length > 0) {
                                 const dateStr = this.formatAbsenceDate(
-                                    fresh.startDate
+                                    fresh.startDate,
                                 );
                                 await this.createNotification({
                                     type: 'absence_change',
                                     title: 'Absence Updated',
                                     message: `Absence on ${dateStr} updated: ${changes.join(
-                                        ', '
+                                        ', ',
                                     )}`,
                                     userId: user.id,
                                     data: { ...fresh, changes },
@@ -1551,7 +1557,7 @@ export class NotificationService {
                 } catch (e) {
                     console.error(
                         `Failed to check absences for user ${user.id}:`,
-                        e
+                        e,
                     );
                 }
             }
@@ -1567,7 +1573,7 @@ export class NotificationService {
         const d = dateInt % 100;
         return `${String(y)}-${String(m).padStart(2, '0')}-${String(d).padStart(
             2,
-            '0'
+            '0',
         )}`;
     }
 }
