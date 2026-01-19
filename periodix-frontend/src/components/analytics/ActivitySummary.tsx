@@ -1,4 +1,4 @@
-import type { FC } from 'react';
+import { type FC } from 'react';
 
 interface ActivitySummaryProps {
     peakHour: string;
@@ -10,7 +10,7 @@ interface ActivitySummaryProps {
 }
 
 /**
- * Simple, mobile-friendly activity summary without complex charts
+ * Modern activity summary component with a unified design
  */
 export const ActivitySummary: FC<ActivitySummaryProps> = ({
     peakHour,
@@ -21,70 +21,91 @@ export const ActivitySummary: FC<ActivitySummaryProps> = ({
     onDetailClick,
 }) => {
     return (
-        <div className="space-y-3">
-            {/* Peak activity indicator */}
-            <div className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg border border-amber-200/50 dark:border-amber-700/30">
-                <div className="flex items-center gap-3">
-                    <span className="text-xl">⏰</span>
+        <div className="space-y-6 lg:space-y-8">
+            {/* Main Stats Card */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5">
+                <div className="flex items-center gap-4 lg:gap-5 p-4 lg:p-5 bg-white dark:bg-slate-900/40 rounded-[1.5rem] lg:rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
+                    <div className="w-12 h-12 lg:w-14 lg:h-14 bg-amber-100/50 dark:bg-amber-900/20 rounded-xl lg:rounded-2xl flex items-center justify-center text-2xl lg:text-3xl shadow-sm border border-amber-200/20">
+                        ⏰
+                    </div>
                     <div>
-                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                            Peak Hour Today
+                        <p className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                            Peak Activity
                         </p>
-                        <p className="text-lg font-bold text-amber-800 dark:text-amber-200">
+                        <p className="text-xl lg:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums">
                             {peakHour}
                         </p>
                     </div>
                 </div>
-                <div className="text-right">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Total Activity
-                    </p>
-                    <p className="text-lg font-bold text-slate-700 dark:text-slate-200">
-                        {todayTotal}
-                    </p>
+
+                <div className="flex items-center gap-4 lg:gap-5 p-4 lg:p-5 bg-white dark:bg-slate-900/40 rounded-[1.5rem] lg:rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
+                    <div className="w-12 h-12 lg:w-14 lg:h-14 bg-indigo-100/50 dark:bg-indigo-900/20 rounded-xl lg:rounded-2xl flex items-center justify-center text-2xl lg:text-3xl shadow-sm border border-indigo-200/20">
+                        ⚡
+                    </div>
+                    <div>
+                        <p className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                            Actions Today
+                        </p>
+                        <p className="text-xl lg:text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
+                            {todayTotal.toLocaleString()}
+                        </p>
+                    </div>
                 </div>
             </div>
 
-            {/* Activity breakdown */}
-            <div className="grid grid-cols-3 gap-2">
-                <button
-                    className="p-3 bg-sky-50 dark:bg-sky-900/20 rounded-lg border border-sky-200/50 dark:border-sky-700/30 text-center hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors"
-                    onClick={() => onDetailClick?.('timetable_views_today')}
-                >
-                    <span className="block text-lg">📅</span>
-                    <p className="text-lg font-bold text-sky-700 dark:text-sky-300">
-                        {timetableViews}
-                    </p>
-                    <p className="text-[10px] text-sky-600 dark:text-sky-400">
-                        Views
-                    </p>
-                </button>
+            {/* Metric Buttons */}
+            <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 lg:gap-4">
+                {[
+                    {
+                        id: 'timetable_views_today',
+                        icon: '📅',
+                        label: 'Views',
+                        value: timetableViews,
+                        color: 'sky',
+                    },
+                    {
+                        id: 'searches_today',
+                        icon: '🔍',
+                        label: 'Searches',
+                        value: searches,
+                        color: 'violet',
+                    },
+                    {
+                        id: 'session_duration_top',
+                        icon: '⏱️',
+                        label: 'Session',
+                        value: avgSession,
+                        color: 'emerald',
+                    },
+                ].map((item) => (
+                    <button
+                        key={item.id}
+                        className={`
+                            group p-4 lg:p-5 bg-white dark:bg-slate-900/40 rounded-[1.5rem] lg:rounded-3xl border border-slate-100 dark:border-slate-800 
+                            hover:border-indigo-400/50 dark:hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/10 
+                            transition-all duration-300 transform active:scale-95 text-center relative overflow-hidden
+                            flex xs:flex-col items-center xs:justify-center gap-4 xs:gap-0
+                        `}
+                        onClick={() => onDetailClick?.(item.id)}
+                    >
+                        {/* Background Decoration */}
+                        <div className="absolute -top-6 -right-6 w-16 h-16 bg-indigo-500/5 rounded-full blur-2xl group-hover:scale-150 transition-transform hidden xs:block" />
 
-                <button
-                    className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200/50 dark:border-indigo-700/30 text-center hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
-                    onClick={() => onDetailClick?.('searches_today')}
-                >
-                    <span className="block text-lg">🔍</span>
-                    <p className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
-                        {searches}
-                    </p>
-                    <p className="text-[10px] text-indigo-600 dark:text-indigo-400">
-                        Searches
-                    </p>
-                </button>
-
-                <button
-                    className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200/50 dark:border-emerald-700/30 text-center hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
-                    onClick={() => onDetailClick?.('session_duration_top')}
-                >
-                    <span className="block text-lg">⏱️</span>
-                    <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
-                        {avgSession}
-                    </p>
-                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                        Avg Session
-                    </p>
-                </button>
+                        <div className="w-10 h-10 lg:w-12 lg:h-12 bg-slate-50 dark:bg-slate-800/80 rounded-xl lg:rounded-2xl flex items-center justify-center xs:mb-4 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/30 transition-colors shadow-inner flex-shrink-0">
+                            <span className="text-xl lg:text-2xl group-hover:rotate-12 transition-transform duration-500">
+                                {item.icon}
+                            </span>
+                        </div>
+                        <div className="text-left xs:text-center">
+                            <p className="text-lg lg:text-xl font-black text-slate-900 dark:text-slate-100 tabular-nums">
+                                {item.value}
+                            </p>
+                            <p className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                {item.label}
+                            </p>
+                        </div>
+                    </button>
+                ))}
             </div>
         </div>
     );

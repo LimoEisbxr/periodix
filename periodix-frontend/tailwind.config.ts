@@ -18,7 +18,11 @@ export default {
         'border-emerald-400'
     ],
     theme: {
-        extend: {},
+        extend: {
+            screens: {
+                xs: '480px',
+            },
+        },
     },
     plugins: [],
 } satisfies Config;

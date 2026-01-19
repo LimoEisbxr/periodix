@@ -2,6 +2,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 @import 'tailwindcss';
 
+@theme {
+    --breakpoint-xs: 480px;
+}
+
 /* Disable native page scrollbar; we'll provide a custom one */
 /* Remove unconditional overflow hidden to allow native focus behavior on login/mobile.
    We'll add a body.scroll-lock class post-auth to re-enable custom scroll isolation. */
