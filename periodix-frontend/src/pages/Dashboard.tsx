@@ -379,22 +379,24 @@ export default function Dashboard({
         return 'Untis did not respond. The official servers might be offline or your Untis password may have changed. We loaded the most recent cached timetable so you can keep working and will refresh automatically once Untis responds.';
     }, [fallbackNotice]);
 
-    const loadMine = useCallback(async () => {
-        setLoadError(null);
-        try {
-            // Track timetable view
-            trackActivity(token, 'timetable_view', { userId: user.id }).catch(
-                console.error,
-            );
+    const loadMine = useCallback(
+        async (forceRefresh: boolean = false) => {
+            setLoadError(null);
+            try {
+                // Track timetable view
+                trackActivity(token, 'timetable_view', { userId: user.id }).catch(
+                    console.error,
+                );
 
-            const { data: res, fromCache } = await getTimetableData(
-                user.id,
-                user.id,
-                weekStartDate,
-                token,
-                true,
-            );
-            setMine(res);
+                const { data: res, fromCache } = await getTimetableData(
+                    user.id,
+                    user.id,
+                    weekStartDate,
+                    token,
+                    true,
+                    forceRefresh
+                );
+                setMine(res);
 
             // Update global fallback notice if it's a fresh fetch
             if (!fromCache) {
@@ -435,7 +437,7 @@ export default function Dashboard({
                     setLoadError(null); // handled by retry banner below
                     const t = setTimeout(() => {
                         setRetrySeconds(null);
-                        loadMine();
+                        loadMine(forceRefresh);
                     }, retryAfterSec * 1000);
                     // Best-effort: clear timer if component unmounts or deps change
                     return () => clearTimeout(t);
@@ -464,7 +466,7 @@ export default function Dashboard({
     ]);
 
     const loadUser = useCallback(
-        async (userId: string) => {
+        async (userId: string, forceRefresh: boolean = false) => {
             /* no loading flag */
             setLoadError(null);
             try {
@@ -479,6 +481,7 @@ export default function Dashboard({
                     weekStartDate,
                     token,
                     false,
+                    forceRefresh
                 );
                 setMine(res);
 
@@ -519,7 +522,7 @@ export default function Dashboard({
                         setLoadError(null);
                         const t = setTimeout(() => {
                             setRetrySeconds(null);
-                            loadUser(userId);
+                            loadUser(userId, forceRefresh);
                         }, retryAfterSec * 1000);
                         return () => clearTimeout(t);
                     }
@@ -548,7 +551,7 @@ export default function Dashboard({
     );
 
     const loadClass = useCallback(
-        async (classId: number) => {
+        async (classId: number, forceRefresh: boolean = false) => {
             setLoadError(null);
             const cacheKey = `${classId}:${weekStartStr}:${weekEndStr}`;
 
@@ -564,6 +567,7 @@ export default function Dashboard({
                     // Skip if already cached and fresh enough
                     const existing = classTimetableCacheRef.current.get(k);
                     if (
+                        !forceRefresh &&
                         existing &&
                         Date.now() - existing.timestamp <
                             CLASS_TIMETABLE_CACHE_TTL_MS
@@ -589,6 +593,7 @@ export default function Dashboard({
 
             const cached = classTimetableCacheRef.current.get(cacheKey);
             if (
+                !forceRefresh &&
                 cached &&
                 Date.now() - cached.timestamp < CLASS_TIMETABLE_CACHE_TTL_MS
             ) {
@@ -654,7 +659,7 @@ export default function Dashboard({
                         setLoadError(null);
                         const t = setTimeout(() => {
                             setRetrySeconds(null);
-                            loadClass(classId);
+                            loadClass(classId, forceRefresh);
                         }, retryAfterSec * 1000);
                         return () => clearTimeout(t);
                     }
@@ -682,6 +687,32 @@ export default function Dashboard({
             loadMine();
         }
     }, [loadClass, loadUser, loadMine, selectedClass, selectedUser, user.id]);
+
+    // Visibility and Online listeners to trigger natural refreshes
+    useEffect(() => {
+        const handleRefresh = () => {
+            // Only refresh if the page is visible and we are online
+            if (document.visibilityState === 'visible' && navigator.onLine) {
+                if (selectedClass) {
+                    loadClass(selectedClass.id);
+                } else if (selectedUser && selectedUser.id !== user.id) {
+                    loadUser(selectedUser.id);
+                } else {
+                    loadMine();
+                }
+            }
+        };
+
+        window.addEventListener('focus', handleRefresh);
+        window.addEventListener('online', handleRefresh);
+        document.addEventListener('visibilitychange', handleRefresh);
+
+        return () => {
+            window.removeEventListener('focus', handleRefresh);
+            window.removeEventListener('online', handleRefresh);
+            document.removeEventListener('visibilitychange', handleRefresh);
+        };
+    }, [loadMine, loadUser, loadClass, selectedClass, selectedUser, user.id]);
 
     useEffect(() => {
         if (!mine) {
@@ -856,6 +887,15 @@ export default function Dashboard({
                             .then((d) => setDefaultLessonColors(d))
                             .catch(() => undefined);
                     }
+                }
+
+                // Force refresh current and adjacent pages to ensure absolute consistency across all cached views
+                if (selectedClass) {
+                    loadClass(selectedClass.id, true);
+                } else if (selectedUser && selectedUser.id !== user.id) {
+                    loadUser(selectedUser.id, true);
+                } else {
+                    loadMine(true);
                 }
             } catch (error) {
                 console.error('Failed to update lesson color:', error);

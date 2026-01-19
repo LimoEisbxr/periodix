@@ -347,6 +347,7 @@ export function useTimetableCache() {
             weekStartDate: Date,
             token: string,
             isOwn: boolean = true,
+            forceRefresh: boolean = false
         ): Promise<void> => {
             const adjacentWeeks = [
                 getPreviousWeekDates(weekStartDate),
@@ -363,12 +364,12 @@ export function useTimetableCache() {
                 // Check if needs refresh (expired adjacent page)
                 const entry = cache.get(cacheKey);
                 const needsRefresh =
-                    entry && entry.pageType === 'adjacent' && isExpired(entry);
+                    forceRefresh || (entry && entry.pageType === 'adjacent' && isExpired(entry));
 
                 // Skip if already cached and not needing refresh, or being prefetched
                 if (
-                    (getCachedData(cacheKey) && !needsRefresh) ||
-                    prefetchQueue.has(cacheKey)
+                    !forceRefresh && ((getCachedData(cacheKey) && !needsRefresh) ||
+                    prefetchQueue.has(cacheKey))
                 ) {
                     continue;
                 }
@@ -408,6 +409,7 @@ export function useTimetableCache() {
             weekStartDate: Date,
             token: string,
             isOwn: boolean = true,
+            forceRefresh: boolean = false
         ): Promise<TimetableResult> => {
             const { weekStartStr, weekEndStr } = getWeekDates(weekStartDate);
             const cacheKey = generateCacheKey(
@@ -423,7 +425,7 @@ export function useTimetableCache() {
             const cached = getCachedData(cacheKey);
             const entry = cache.get(cacheKey);
 
-            if (cached && entry && !isExpired(entry)) {
+            if (!forceRefresh && cached && entry && !isExpired(entry)) {
                 // Start background prefetch for adjacent weeks
                 prefetchAdjacentWeeks(
                     userId,
@@ -437,6 +439,7 @@ export function useTimetableCache() {
 
             // If we have stale data for current or adjacent pages, return it while fetching fresh data
             if (
+                !forceRefresh &&
                 cached &&
                 entry &&
                 (entry.pageType === 'current' || entry.pageType === 'adjacent')
@@ -481,6 +484,7 @@ export function useTimetableCache() {
                 weekStartDate,
                 token,
                 isOwn,
+                forceRefresh,
             );
 
             return { data, fromCache: false };
